@@ -29,8 +29,10 @@ Requires `jq` (for first-message previews). `fzf` is optional — if present,
 ```bash
 xs <name> [note...]   # save a mark for the session in the current dir
 xg <name>             # cd there and resume the session
-xl                    # list marks (name, tool, account, dir, note, ...)
+xl [-l|--long]        # list marks; -l adds the first-message preview column
 xd <name>             # remove a mark
+xq                    # is this session saved? (inside a session: `! xq`)
+xj [pattern]          # journal of past sessions (see the SessionEnd hook)
 ```
 
 The best way to save a mark is from *inside* the session you want to keep:
@@ -56,6 +58,20 @@ Marks are stored in `~/.agentmarks` (TSV, override with `$AGENTMARKS_FILE`).
 Each mark keeps a copy of the session's first user message, so listings stay
 meaningful even after the agent expires the session file itself. If a
 session is gone, `xg` still cd's to the directory and warns.
+
+## Session journal: auto-summaries on exit
+
+`make install-hook` registers a `SessionEnd` hook in every `~/.claude*`
+settings.json (each backed up to `.bak` first). When a Claude Code session
+ends, the hook appends one row to `~/.agentmarks-journal`: date, session
+id, dir, account, and an auto-generated summary — by default it asks haiku
+via `claude -p` for ≤12 words about the transcript (a few seconds, a
+fraction of a cent per session); set `AGENTMARKS_AUTOSUMMARY=first` to
+skip the LLM and use the session's first user message instead.
+
+Browse with `xj` (newest first, last 20) or `xj <pattern>` to filter.
+Unlike marks, the journal is automatic and unnamed — it's the safety net
+for sessions you forgot to mark. `make uninstall-hook` removes it.
 
 ## Multiple accounts and tools
 

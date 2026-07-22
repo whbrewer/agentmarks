@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# agentmarks SessionEnd hook: when a Claude Code session ends, append one
+# journal row (date, session id, dir, home, reason, auto-summary) to
+# ~/.agentmarks-journal. Browse it with `xj`. Registered in settings.json
+# by `make install-hook`.
+#
+# Summary generation: by default asks haiku via `claude -p` for a ≤12-word
+# summary of the transcript tail (a few seconds, a fraction of a cent per
+# session). Set AGENTMARKS_AUTOSUMMARY=first to skip the LLM and use the
+# session's first user message instead.
+
+[ -n "$AGENTMARKS_IN_HOOK" ] && exit 0  # the claude -p below must not recurse
+
+IN="$(cat)"
+sid="$(jq -r '.session_id // empty' <<<"$IN")"
+tp="$(jq -r '.transcript_path // empty' <<<"$IN")"
+cwd="$(jq -r '.cwd // empty' <<<"$IN")"
+reason="$(jq -r '.reason // "exit"' <<<"$IN")"
+[ -n "$sid" ] && [ -f "$tp" ] || exit 0
+home="${tp%/projects/*}"
+journal="${AGENTMARKS_JOURNAL:-$HOME/.agentmarks-journal}"
+
+user_and_assistant_text () {
+  jq -r 'select(.type == "user" or .type == "assistant")
+         | select(.isSidechain != true) | .message.content
+         | if type == "string" then .
+           else (map(select(.type == "text") | .text) | join(" ")) end' \
+      "$tp" 2>/dev/null \
+    | sed 's/^[[:space:]]*//' | grep -v -e '^<' -e '^$'
+}
+
+summary=""
+if [ "${AGENTMARKS_AUTOSUMMARY:-llm}" = llm ] && command -v claude >/dev/null 2>&1; then
+  excerpt="$(user_and_assistant_text | tail -40 | cut -c1-400)"
+  if [ -n "$excerpt" ]; then
+    # Run from tmp so the summarizer's own session file doesn't land in this
+    # project's dir (it would poison xs's "most recent session" guess).
+    summary="$(cd "${TMPDIR:-/tmp}" && printf '%s\n' "$excerpt" \
+      | AGENTMARKS_IN_HOOK=1 timeout 60 claude -p --model haiku \
+          "Summarize this coding-agent session in at most 12 words. Output only the summary, no preamble." \
+          2>/dev/null | grep -v '^$' | head -1 | tr '\t' ' ' | cut -c1-100)"
+  fi
+fi
+[ -n "$summary" ] || summary="$(user_and_assistant_text | head -1 | tr '\t' ' ' | cut -c1-100)"
+[ -n "$summary" ] || summary="-"
+
+{
+  [ -f "$journal" ] && awk -F'\t' -v s="$sid" '$2 != s' "$journal"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$(date +%F)" "$sid" "$cwd" "$home" "$reason" "$summary"
+} > "$journal.tmp" && mv "$journal.tmp" "$journal"

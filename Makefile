@@ -36,4 +36,27 @@ install-skill:
 uninstall-skill:
 	rm -rf $(HOME)/.claude/skills/mark $(HOME)/.claude-*/skills/mark
 
-.PHONY: install uninstall install-skill uninstall-skill
+# Register the SessionEnd journal hook in every ~/.claude* settings.json
+# (backs each up to settings.json.bak first). Browse the journal with xj.
+install-hook:
+	install -m 755 hooks/agentmarks-sessionend $(BINDIR)/agentmarks-sessionend
+	@for d in $(HOME)/.claude $(HOME)/.claude-*; do \
+	  [ -d $$d ] || continue; \
+	  s=$$d/settings.json; [ -f $$s ] || echo '{}' > $$s; \
+	  cp $$s $$s.bak; \
+	  jq --arg cmd "$(BINDIR)/agentmarks-sessionend" \
+	    '.hooks.SessionEnd = ((.hooks.SessionEnd // []) | map(select((.hooks[0].command // "") != $$cmd))) + [{"hooks": [{"type": "command", "command": $$cmd}]}]' \
+	    $$s.bak > $$s.new && mv $$s.new $$s && echo "hook registered in $$s"; \
+	done
+
+uninstall-hook:
+	@for d in $(HOME)/.claude $(HOME)/.claude-*; do \
+	  s=$$d/settings.json; [ -f $$s ] || continue; \
+	  cp $$s $$s.bak; \
+	  jq --arg cmd "$(BINDIR)/agentmarks-sessionend" \
+	    '.hooks.SessionEnd = ((.hooks.SessionEnd // []) | map(select((.hooks[0].command // "") != $$cmd)))' \
+	    $$s.bak > $$s.new && mv $$s.new $$s && echo "hook removed from $$s"; \
+	done
+	rm -f $(BINDIR)/agentmarks-sessionend
+
+.PHONY: install uninstall install-skill uninstall-skill install-hook uninstall-hook

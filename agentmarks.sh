@@ -4,8 +4,10 @@
 #
 #   xs <name> [note...]    save a mark for the current/most-recent session here
 #   xg [name]              cd to the mark's dir and resume its session
-#   xl                     list marks
+#   xl [-l|--long]         list marks (-l adds the first-message preview)
 #   xd <name>              remove a mark
+#   xq                     is this session / directory marked?
+#   xj [pattern]           journal of past sessions (needs the SessionEnd hook)
 #
 # Marks live in ~/.agentmarks, one TSV line per mark:
 #   name  dir  session_id  note  date  first-user-message  home_dir  tool
@@ -187,16 +189,70 @@ xg () {
 
 xl () {
   local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks}"
+  local long=0
+  case "$1" in -l|--long|--full) long=1 ;; esac
   [ -s "$AGENTMARKS_FILE" ] || { echo "xl: no marks yet" >&2; return 1; }
-  { printf 'NAME\tTOOL\tACCOUNT\tDIR\tNOTE\tDATE\tFIRST MESSAGE\n'
+  { if [ "$long" = 1 ]; then
+      printf 'NAME\tTOOL\tACCOUNT\tDIR\tNOTE\tDATE\tFIRST MESSAGE\n'
+    else
+      printf 'NAME\tTOOL\tACCOUNT\tDIR\tNOTE\tDATE\n'
+    fi
     local IFS=$'\t' name dir sid note date first home tool
     while read -r name dir sid note date first home tool; do
       tool="${tool:-claude}"
       [ -n "$home" ] || { [ "$tool" = codex ] && home="$HOME/.codex" || home="$HOME/.claude"; }
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$name" "$tool" "$(am_account "$home")" "$dir" "$note" "$date" "$first"
+      if [ "$long" = 1 ]; then
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+          "$name" "$tool" "$(am_account "$home")" "$dir" "$note" "$date" "$first"
+      else
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+          "$name" "$tool" "$(am_account "$home")" "$dir" "$note" "$date"
+      fi
     done < "$AGENTMARKS_FILE"
   } | column -t -s"$(printf '\t')"
+}
+
+# xj: journal of ended sessions, written by the agentmarks-sessionend hook
+# (make install-hook). Newest first; optional pattern filters, else last 20.
+xj () {
+  local j="${AGENTMARKS_JOURNAL:-$HOME/.agentmarks-journal}"
+  [ -s "$j" ] || {
+    echo "xj: no journal yet — install the SessionEnd hook: make install-hook" >&2
+    return 1
+  }
+  { printf 'DATE\tACCOUNT\tDIR\tSUMMARY\n'
+    local IFS=$'\t' date sid dir home reason summary
+    tac "$j" | { [ -n "$1" ] && grep -i -- "$1" || head -20; } \
+    | while read -r date sid dir home reason summary; do
+        printf '%s\t%s\t%s\t%s\n' "$date" "$(am_account "$home")" "$dir" "$summary"
+      done
+  } | column -t -s"$(printf '\t')"
+}
+
+# xq: is this session saved? Inside a Claude Code session (`! xq`) checks
+# that exact session; outside, shows any marks for the current directory.
+xq () {
+  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks}"
+  local hits
+  if [ -n "$CLAUDE_CODE_SESSION_ID" ]; then
+    hits="$(awk -F'\t' -v s="$CLAUDE_CODE_SESSION_ID" \
+      '$3 == s {printf "  %s  (%s)\n", $1, $4}' "$AGENTMARKS_FILE" 2>/dev/null)"
+    if [ -n "$hits" ]; then
+      echo "this session is marked:"; printf '%s\n' "$hits"
+    else
+      echo "this session is NOT marked — save it with: xs <name> [note...]"
+      return 1
+    fi
+  else
+    hits="$(awk -F'\t' -v d="$PWD" \
+      '$2 == d {printf "  %s  (%s)\n", $1, $4}' "$AGENTMARKS_FILE" 2>/dev/null)"
+    if [ -n "$hits" ]; then
+      echo "marks for $PWD:"; printf '%s\n' "$hits"
+    else
+      echo "no marks for $PWD"
+      return 1
+    fi
+  fi
 }
 
 xd () {
