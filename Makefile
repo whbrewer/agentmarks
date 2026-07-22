@@ -40,6 +40,7 @@ uninstall-skill:
 # (backs each up to settings.json.bak first). Browse the journal with xj.
 install-hook:
 	install -m 755 hooks/agentmarks-sessionend $(BINDIR)/agentmarks-sessionend
+	install -m 755 hooks/agentmarks-summarize-async $(BINDIR)/agentmarks-summarize-async
 	@for d in $(HOME)/.claude $(HOME)/.claude-*; do \
 	  [ -d $$d ] || continue; \
 	  s=$$d/settings.json; [ -f $$s ] || echo '{}' > $$s; \
@@ -57,6 +58,6 @@ uninstall-hook:
 	    '.hooks.SessionEnd = ((.hooks.SessionEnd // []) | map(select((.hooks[0].command // "") != $$cmd)))' \
 	    $$s.bak > $$s.new && mv $$s.new $$s && echo "hook removed from $$s"; \
 	done
-	rm -f $(BINDIR)/agentmarks-sessionend
+	rm -f $(BINDIR)/agentmarks-sessionend $(BINDIR)/agentmarks-summarize-async
 
 .PHONY: install uninstall install-skill uninstall-skill install-hook uninstall-hook

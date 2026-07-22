@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Background helper spawned (detached, via setsid) by agentmarks-sessionend:
+# asks haiku for a short summary of one session, then patches its journal
+# row in place. Runs independent of the hook and of Claude Code entirely,
+# so it's free to take whatever time an LLM call needs without risking
+# "hook cancelled". Any failure here — no network, spend limit reached,
+# `claude` missing, timeout — exits quietly; the heuristic summary
+# agentmarks-sessionend already wrote to the journal stands unchanged.
+
+sid="$1" journal="$2" cwd="$3" home="$4" reason="$5"
+excerpt="$(cat)"
+
+summary="$(cd "${TMPDIR:-/tmp}" && printf '%s\n' "$excerpt" \
+  | AGENTMARKS_IN_HOOK=1 timeout 45 claude -p --model haiku \
+      "Summarize this coding-agent session in at most 12 words. Output only the summary, no preamble." \
+      2>/dev/null | grep -v '^$' | head -1 | tr '\t' ' ' | cut -c1-100)"
+[ -n "$summary" ] || exit 0
+
+(
+  flock -w 5 200 || exit 0
+  {
+    [ -f "$journal" ] && awk -F'\t' -v s="$sid" '$2 != s' "$journal"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$(date '+%F %H:%M')" "$sid" "$cwd" "$home" "$reason" "$summary"
+  } > "$journal.tmp" && mv "$journal.tmp" "$journal"
+) 200>"$journal.lock"

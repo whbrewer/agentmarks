@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
-# agentmarks SessionEnd hook: when a Claude Code session ends, append one
-# journal row (date, session id, dir, home, reason, auto-summary) to
-# ~/.agentmarks-journal. Browse it with `xj`. Registered in settings.json
-# by `make install-hook`.
+# agentmarks SessionEnd hook — see README's "Session journal" section.
 #
-# Summary generation: by default asks haiku via `claude -p` for a ≤12-word
-# summary of the transcript tail (a few seconds, a fraction of a cent per
-# session). Set AGENTMARKS_AUTOSUMMARY=first to skip the LLM and use the
-# session's first user message instead.
+# Writes a fast heuristic summary (the session's first user message)
+# synchronously, so this hook always returns in a fraction of a second and
+# can never be killed for running too long. If AGENTMARKS_AUTOSUMMARY is
+# unset or "llm" (the default), it also launches a fully detached
+# background job (agentmarks-summarize-async) that asks haiku for a
+# better <=12-word summary and patches the row in place once it's ready —
+# after this hook, and possibly the whole claude process, has exited. If
+# that call fails for any reason (no network, spend limit reached,
+# `claude` missing, timeout), the heuristic summary already on disk
+# stands; nothing here depends on the LLM call succeeding.
+# Set AGENTMARKS_AUTOSUMMARY=first to skip the LLM step entirely.
 
-[ -n "$AGENTMARKS_IN_HOOK" ] && exit 0  # the claude -p below must not recurse
+[ -n "$AGENTMARKS_IN_HOOK" ] && exit 0  # must not recurse into our own claude -p
 
 IN="$(cat)"
 sid="$(jq -r '.session_id // empty' <<<"$IN")"
@@ -29,23 +33,28 @@ user_and_assistant_text () {
     | sed 's/^[[:space:]]*//' | grep -v -e '^<' -e '^$'
 }
 
-summary=""
+# Replaces any existing row for this session id (flock'd, so a background
+# LLM update from an earlier run of this hook can't race a fresh one).
+write_row () {
+  (
+    flock -w 5 200 || true
+    {
+      [ -f "$journal" ] && awk -F'\t' -v s="$sid" '$2 != s' "$journal"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$(date '+%F %H:%M')" "$sid" "$cwd" "$home" "$reason" "$1"
+    } > "$journal.tmp" && mv "$journal.tmp" "$journal"
+  ) 200>"$journal.lock"
+}
+
+first="$(user_and_assistant_text | head -1 | tr '\t' ' ' | cut -c1-100)"
+write_row "${first:--}"
+
 if [ "${AGENTMARKS_AUTOSUMMARY:-llm}" = llm ] && command -v claude >/dev/null 2>&1; then
   excerpt="$(user_and_assistant_text | tail -40 | cut -c1-400)"
-  if [ -n "$excerpt" ]; then
-    # Run from tmp so the summarizer's own session file doesn't land in this
-    # project's dir (it would poison xs's "most recent session" guess).
-    summary="$(cd "${TMPDIR:-/tmp}" && printf '%s\n' "$excerpt" \
-      | AGENTMARKS_IN_HOOK=1 timeout 60 claude -p --model haiku \
-          "Summarize this coding-agent session in at most 12 words. Output only the summary, no preamble." \
-          2>/dev/null | grep -v '^$' | head -1 | tr '\t' ' ' | cut -c1-100)"
+  helper="$(dirname "$(readlink -f "$0")")/agentmarks-summarize-async"
+  if [ -n "$excerpt" ] && [ -x "$helper" ]; then
+    setsid "$helper" "$sid" "$journal" "$cwd" "$home" "$reason" \
+      <<<"$excerpt" >/dev/null 2>&1 &
+    disown
   fi
 fi
-[ -n "$summary" ] || summary="$(user_and_assistant_text | head -1 | tr '\t' ' ' | cut -c1-100)"
-[ -n "$summary" ] || summary="-"
-
-{
-  [ -f "$journal" ] && awk -F'\t' -v s="$sid" '$2 != s' "$journal"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$(date '+%F %H:%M')" "$sid" "$cwd" "$home" "$reason" "$summary"
-} > "$journal.tmp" && mv "$journal.tmp" "$journal"

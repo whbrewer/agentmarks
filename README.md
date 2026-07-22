@@ -73,6 +73,16 @@ Browse with `xj` (newest first, last 20) or `xj <pattern>` to filter.
 Unlike marks, the journal is automatic and unnamed — it's the safety net
 for sessions you forgot to mark. `make uninstall-hook` removes it.
 
+The hook itself always returns in well under a second: it writes the
+heuristic summary synchronously, then — if an LLM summary is wanted —
+launches a fully detached background job (`agentmarks-summarize-async`,
+via `setsid`) that asks haiku and patches the row in place once it's
+ready. This matters because SessionEnd hooks get killed if they run too
+long; earlier versions called `claude -p` inline and could be cancelled
+outright (losing the journal entry) if that call stalled — e.g. from a
+spend-limit block. Now a stalled or failed LLM call just leaves the
+heuristic summary in place; the hook itself never waits on it.
+
 ## Multiple accounts and tools
 
 Each mark records which tool it belongs to (`claude` or `codex`) and the
