@@ -23,4 +23,17 @@ install:
 uninstall:
 	rm -f $(BINDIR)/agentmarks.sh $(BINDIR)/xs $(BINDIR)/xg $(BINDIR)/xl $(BINDIR)/xd
 
-.PHONY: install uninstall
+# Install the /mark skill into every Claude Code config dir (~/.claude*),
+# so Claude can bookmark its own session with an auto-generated summary.
+install-skill:
+	@for d in $(HOME)/.claude $(HOME)/.claude-*; do \
+	  [ -d $$d ] || continue; \
+	  install -d $$d/skills/mark; \
+	  install -m 644 skills/mark/SKILL.md $$d/skills/mark/SKILL.md; \
+	  echo "installed /mark skill → $$d/skills/mark"; \
+	done
+
+uninstall-skill:
+	rm -rf $(HOME)/.claude/skills/mark $(HOME)/.claude-*/skills/mark
+
+.PHONY: install uninstall install-skill uninstall-skill

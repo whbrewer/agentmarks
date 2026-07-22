@@ -44,6 +44,14 @@ the exact session — no guessing. Run outside a session, `xs` falls back to
 the most recent session for the current directory, across all tools and
 accounts.
 
+## /mark skill: let Claude write the note
+
+`make install-skill` installs a `/mark` skill into every `~/.claude*`
+config dir. Inside a session, `/mark` (or `/mark <name>`) has Claude pick
+a mark name, write a ≤10-word summary of what the session actually did,
+and save it via `xs` — the part of a bookmark bashmarks could never
+automate. New sessions pick the skill up automatically.
+
 Marks are stored in `~/.agentmarks` (TSV, override with `$AGENTMARKS_FILE`).
 Each mark keeps a copy of the session's first user message, so listings stay
 meaningful even after the agent expires the session file itself. If a
