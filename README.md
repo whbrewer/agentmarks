@@ -32,7 +32,7 @@ xg <name>             # cd there and resume the session
 xl [-l|--long]        # list marks; -l adds the first-message preview column
 xd <name>             # remove a mark
 xq                    # is this session saved? (inside a session: `! xq`)
-xj [pattern]          # journal of past sessions (see the SessionEnd hook)
+xj [pattern]          # journal of past sessions, cross-referenced with marks
 ```
 
 The best way to save a mark is from *inside* the session you want to keep:
@@ -69,9 +69,13 @@ via `claude -p` for ≤12 words about the transcript (a few seconds, a
 fraction of a cent per session); set `AGENTMARKS_AUTOSUMMARY=first` to
 skip the LLM and use the session's first user message instead.
 
-Browse with `xj` (newest first, last 20) or `xj <pattern>` to filter.
-Unlike marks, the journal is automatic and unnamed — it's the safety net
-for sessions you forgot to mark. `make uninstall-hook` removes it.
+Browse with `xj` (newest first, last 20) or `xj <pattern>` to filter. Each
+row's MARK column shows the mark name if that session was also `xs`'d
+(looked up by session id against `~/.agentmarks`), or `-` if not — so you
+can tell at a glance which journaled sessions are already bookmarked.
+Unlike marks, the journal itself is automatic and unnamed — it's the
+safety net for sessions you forgot to mark. `make uninstall-hook` removes
+the hook.
 
 The hook itself always returns in well under a second: it writes the
 heuristic summary synchronously, then — if an LLM summary is wanted —

@@ -7,7 +7,7 @@
 #   xl [-l|--long]         list marks (-l adds the first-message preview)
 #   xd <name>              remove a mark
 #   xq                     is this session / directory marked?
-#   xj [pattern]           journal of past sessions (needs the SessionEnd hook)
+#   xj [pattern]           journal of past sessions, cross-referenced with marks
 #
 # Marks live in ~/.agentmarks, one TSV line per mark:
 #   name  dir  session_id  note  date  first-user-message  home_dir  tool
@@ -216,15 +216,17 @@ xl () {
 # (make install-hook). Newest first; optional pattern filters, else last 20.
 xj () {
   local j="${AGENTMARKS_JOURNAL:-$HOME/.agentmarks-journal}"
+  local marksfile="${AGENTMARKS_FILE:-$HOME/.agentmarks}"
   [ -s "$j" ] || {
     echo "xj: no journal yet — install the SessionEnd hook: make install-hook" >&2
     return 1
   }
-  { printf 'DATE\tACCOUNT\tDIR\tSUMMARY\n'
-    local IFS=$'\t' date sid dir home reason summary
+  { printf 'DATE\tMARK\tACCOUNT\tDIR\tSUMMARY\n'
+    local IFS=$'\t' date sid dir home reason summary mark
     tac "$j" | { [ -n "$1" ] && grep -i -- "$1" || head -20; } \
     | while read -r date sid dir home reason summary; do
-        printf '%s\t%s\t%s\t%s\n' "$date" "$(am_account "$home")" "$dir" "$summary"
+        mark="$(awk -F'\t' -v s="$sid" '$3 == s {print $1; exit}' "$marksfile" 2>/dev/null)"
+        printf '%s\t%s\t%s\t%s\t%s\n' "$date" "${mark:--}" "$(am_account "$home")" "$dir" "$summary"
       done
   } | column -t -s"$(printf '\t')"
 }
