@@ -24,6 +24,10 @@ bashrc's "not interactive" guard).
 Requires `jq` (for first-message previews). `fzf` is optional — if present,
 `xg` with no argument opens a fuzzy picker.
 
+Sourcing `agentmarks.sh` also registers bash tab completion for `xg`, `xd`,
+and `xs` — press `<TAB>` after any of them to complete an existing mark
+name. No separate step; it's set up wherever the `source` line runs.
+
 ## Usage
 
 ```bash

@@ -267,3 +267,17 @@ xd () {
     && mv "$AGENTMARKS_FILE.tmp" "$AGENTMARKS_FILE"
   echo "removed '$1'"
 }
+
+# Tab completion for mark names on xg/xd (and xs, so overwriting an
+# existing mark can be completed too). Bash only -- zsh users with
+# bashcompinit loaded will pick this up as well since it uses the same
+# `complete` builtin, but this isn't tested under plain zsh.
+am_complete () {
+  local f="${AGENTMARKS_FILE:-$HOME/.agentmarks}"
+  [ -r "$f" ] || return 0
+  local cur=${COMP_WORDS[COMP_CWORD]}
+  COMPREPLY=( $(compgen -W "$(cut -f1 "$f" 2>/dev/null)" -- "$cur") )
+}
+if [ -n "$BASH_VERSION" ]; then
+  complete -F am_complete xg xd xs
+fi
