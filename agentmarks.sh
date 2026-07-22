@@ -17,9 +17,11 @@
 # else every existing ~/.claude*; $AGENTMARKS_CODEX_HOMES else $CODEX_HOME
 # else every existing ~/.codex*.
 
-AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks}"
+# Resolved inside each function (not at source time): Claude Code's shell
+# snapshots restore functions but not unexported variables, so a top-level
+# assignment would be lost in `!` shells inside sessions.
 
-_am_claude_dirs () {
+am_claude_dirs () {
   if [ -n "$AGENTMARKS_CONFIG_DIRS" ]; then
     printf '%s\n' "$AGENTMARKS_CONFIG_DIRS" | tr ':' '\n'
   else
@@ -30,7 +32,7 @@ _am_claude_dirs () {
   fi
 }
 
-_am_codex_homes () {
+am_codex_homes () {
   if [ -n "$AGENTMARKS_CODEX_HOMES" ]; then
     printf '%s\n' "$AGENTMARKS_CODEX_HOMES" | tr ':' '\n'
   elif [ -n "$CODEX_HOME" ]; then
@@ -43,13 +45,13 @@ _am_codex_homes () {
   fi
 }
 
-_am_proj_dir () {
+am_proj_dir () {
   # Claude Code stores sessions under <config_dir>/projects/<munged cwd>,
   # where every non-alphanumeric character of the cwd becomes '-'.
   printf '%s/projects/%s' "$1" "$(printf '%s' "$2" | sed 's/[^A-Za-z0-9]/-/g')"
 }
 
-_am_codex_latest () {
+am_codex_latest () {
   # Newest codex session for cwd $2 under home $1. Codex files are date-
   # organized with no per-project dir, so scan newest-first (path order is
   # chronological) and match session_meta.cwd on line one.
@@ -62,12 +64,12 @@ _am_codex_latest () {
   return 1
 }
 
-_am_is_codex () {
+am_is_codex () {
   # Codex rollout files start with a session_meta record.
   head -c 200 "$1" 2>/dev/null | grep -q '"type":"session_meta"'
 }
 
-_am_account () {
+am_account () {
   # Short display name for a home dir: ~/.claude-work → work, ~/.codex → default.
   local b; b="$(basename "$1")"
   case "$b" in
@@ -78,9 +80,9 @@ _am_account () {
   esac
 }
 
-_am_first_msg () {
+am_first_msg () {
   # First real user message of a session file ($1), one line, trimmed.
-  if _am_is_codex "$1"; then
+  if am_is_codex "$1"; then
     jq -r 'select(.type == "event_msg" and .payload.type == "user_message")
            | .payload.message' "$1" 2>/dev/null
   else
@@ -94,6 +96,7 @@ _am_first_msg () {
 }
 
 xs () {
+  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks}"
   [ -n "$1" ] || { echo "usage: xs <name> [note...]" >&2; return 1; }
   local name="$1"; shift
   local note="$*"
@@ -104,7 +107,7 @@ xs () {
     tool=claude
     sid="$CLAUDE_CODE_SESSION_ID"
     home="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-    file="$(_am_proj_dir "$home" "$PWD")/$sid.jsonl"
+    file="$(am_proj_dir "$home" "$PWD")/$sid.jsonl"
     # The shell may have cd'd away from the session's start dir; find the
     # session by id and mark its real cwd, so xg lands in the right place.
     [ -f "$file" ] \
@@ -117,14 +120,14 @@ xs () {
     # Newest session for this dir across all claude config dirs + codex homes.
     local d f files=()
     while IFS= read -r d; do
-      files+=( "$(_am_proj_dir "$d" "$PWD")"/*.jsonl )
-    done < <(_am_claude_dirs)
+      files+=( "$(am_proj_dir "$d" "$PWD")"/*.jsonl )
+    done < <(am_claude_dirs)
     while IFS= read -r d; do
-      f="$(_am_codex_latest "$d" "$PWD")" && files+=( "$f" )
-    done < <(_am_codex_homes)
+      f="$(am_codex_latest "$d" "$PWD")" && files+=( "$f" )
+    done < <(am_codex_homes)
     file="$(ls -t "${files[@]}" 2>/dev/null | head -1)"
     [ -n "$file" ] || { echo "xs: no claude/codex sessions found for $PWD" >&2; return 1; }
-    if _am_is_codex "$file"; then
+    if am_is_codex "$file"; then
       tool=codex
       home="${file%/sessions/*}"
       sid="$(head -1 "$file" | jq -r '.payload.id')"
@@ -134,16 +137,17 @@ xs () {
       sid="$(basename "$file" .jsonl)"
     fi
   fi
-  local first; first="$(_am_first_msg "$file")"
+  local first; first="$(am_first_msg "$file")"
   {
     [ -f "$AGENTMARKS_FILE" ] && awk -F'\t' -v n="$name" '$1 != n' "$AGENTMARKS_FILE"
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "$name" "$markdir" "$sid" "${note:--}" "$(date +%F)" "${first:--}" "$home" "$tool"
   } > "$AGENTMARKS_FILE.tmp" && mv "$AGENTMARKS_FILE.tmp" "$AGENTMARKS_FILE"
-  echo "marked '$name' → $sid  [$tool/$(_am_account "$home")]  ($markdir)"
+  echo "marked '$name' → $sid  [$tool/$(am_account "$home")]  ($markdir)"
 }
 
 xg () {
+  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks}"
   [ -s "$AGENTMARKS_FILE" ] || { echo "xg: no marks yet" >&2; return 1; }
   local name="$1" line
   if [ -z "$name" ]; then
@@ -173,7 +177,7 @@ xg () {
     CODEX_HOME="$home" codex resume "$sid"
   else
     home="${home:-$HOME/.claude}"
-    if [ ! -f "$(_am_proj_dir "$home" "$dir")/$sid.jsonl" ]; then
+    if [ ! -f "$(am_proj_dir "$home" "$dir")/$sid.jsonl" ]; then
       echo "xg: session $sid no longer exists in $home — you're in $dir" >&2
       return 1
     fi
@@ -182,6 +186,7 @@ xg () {
 }
 
 xl () {
+  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks}"
   [ -s "$AGENTMARKS_FILE" ] || { echo "xl: no marks yet" >&2; return 1; }
   { printf 'NAME\tTOOL\tACCOUNT\tDIR\tNOTE\tDATE\tFIRST MESSAGE\n'
     local IFS=$'\t' name dir sid note date first home tool
@@ -189,12 +194,13 @@ xl () {
       tool="${tool:-claude}"
       [ -n "$home" ] || { [ "$tool" = codex ] && home="$HOME/.codex" || home="$HOME/.claude"; }
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$name" "$tool" "$(_am_account "$home")" "$dir" "$note" "$date" "$first"
+        "$name" "$tool" "$(am_account "$home")" "$dir" "$note" "$date" "$first"
     done < "$AGENTMARKS_FILE"
   } | column -t -s"$(printf '\t')"
 }
 
 xd () {
+  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks}"
   [ -n "$1" ] || { echo "usage: xd <name>" >&2; return 1; }
   [ -s "$AGENTMARKS_FILE" ] || { echo "xd: no marks yet" >&2; return 1; }
   grep -q "^$1$(printf '\t')" "$AGENTMARKS_FILE" \
