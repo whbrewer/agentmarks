@@ -47,5 +47,5 @@ fi
 {
   [ -f "$journal" ] && awk -F'\t' -v s="$sid" '$2 != s' "$journal"
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$(date +%F)" "$sid" "$cwd" "$home" "$reason" "$summary"
+    "$(date '+%F %H:%M')" "$sid" "$cwd" "$home" "$reason" "$summary"
 } > "$journal.tmp" && mv "$journal.tmp" "$journal"

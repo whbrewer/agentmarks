@@ -143,7 +143,7 @@ xs () {
   {
     [ -f "$AGENTMARKS_FILE" ] && awk -F'\t' -v n="$name" '$1 != n' "$AGENTMARKS_FILE"
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$name" "$markdir" "$sid" "${note:--}" "$(date +%F)" "${first:--}" "$home" "$tool"
+      "$name" "$markdir" "$sid" "${note:--}" "$(date '+%F %H:%M')" "${first:--}" "$home" "$tool"
   } > "$AGENTMARKS_FILE.tmp" && mv "$AGENTMARKS_FILE.tmp" "$AGENTMARKS_FILE"
   echo "marked '$name' → $sid  [$tool/$(am_account "$home")]  ($markdir)"
 }
