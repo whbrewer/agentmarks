@@ -58,8 +58,8 @@ a mark name, write a ≤10-word summary of what the session actually did,
 and save it via `xs` — the part of a bookmark bashmarks could never
 automate. New sessions pick the skill up automatically.
 
-Marks are stored in `~/.agentmarks/marks.tsv` (TSV, override with
-`$AGENTMARKS_FILE`). Each mark keeps a copy of the session's first user
+Marks are stored in `~/.agentmarks/marks.jsonl` (one JSON object per line,
+override with `$AGENTMARKS_FILE`). Each mark keeps a copy of the session's first user
 message, so listings stay meaningful even after the agent expires the
 session file itself. If a session is gone, `xg` still cd's to the
 directory and warns.
@@ -68,7 +68,9 @@ All agentmarks state lives under `~/.agentmarks/` (marks, journal, and
 their lock/tmp files during writes) rather than loose dotfiles in `$HOME`.
 Upgrading from an older version migrates automatically the first time any
 command runs — the old `~/.agentmarks` file and `~/.agentmarks-journal`
-are moved in place, nothing is lost.
+are moved in place, and a TSV `marks.tsv` from a pre-JSONL version is
+converted to `marks.jsonl` (the original is kept as `marks.tsv.bak`).
+Nothing is lost.
 
 ## Session journal: auto-summaries on exit
 
@@ -82,7 +84,7 @@ skip the LLM and use the session's first user message instead.
 
 Browse with `xj` (newest first, last 20) or `xj <pattern>` to filter. Each
 row's MARK column shows the mark name if that session was also `xs`'d
-(looked up by session id against `~/.agentmarks/marks.tsv`), or `-` if not — so you
+(looked up by session id against `~/.agentmarks/marks.jsonl`), or `-` if not — so you
 can tell at a glance which journaled sessions are already bookmarked.
 Unlike marks, the journal itself is automatic and unnamed — it's the
 safety net for sessions you forgot to mark. `make uninstall-hook` removes
@@ -105,7 +107,9 @@ home dir its session lives in (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`, e.g.
 `~/.claude-personal` vs `~/.claude-work`). `xg` dispatches accordingly —
 `CLAUDE_CONFIG_DIR=... claude --resume` or `CODEX_HOME=... codex resume` —
 so marks from every account and both tools share one list, and `xl` shows
-TOOL and ACCOUNT columns for each.
+an ACCOUNT column for each (plus a TOOL column, but only when marks from
+both `claude` and `codex` actually coexist — otherwise it's dropped as a
+repeated no-op value).
 
 When saving from inside a Claude Code session, the session's own id and
 config dir are used (Codex doesn't export a session id to child shells, so
