@@ -9,8 +9,10 @@
 #   xq                     is this session / directory marked?
 #   xj [pattern]           journal of past sessions, cross-referenced with marks
 #
-# Marks live in ~/.agentmarks, one TSV line per mark:
-#   name  dir  session_id  note  date  first-user-message  home_dir  tool
+# State lives under ~/.agentmarks/:
+#   marks.tsv    one line per mark:
+#                name  dir  session_id  note  date  first-user-message  home_dir  tool
+#   journal.tsv  one line per ended session, written by the SessionEnd hook
 # where tool is "claude" or "codex" (empty = claude, for old marks) and
 # home_dir is the CLAUDE_CONFIG_DIR / CODEX_HOME the session lives in, so
 # marks from different accounts and tools coexist and resume correctly.
@@ -22,6 +24,29 @@
 # Resolved inside each function (not at source time): Claude Code's shell
 # snapshots restore functions but not unexported variables, so a top-level
 # assignment would be lost in `!` shells inside sessions.
+
+# One-time migration from the old flat dotfiles (~/.agentmarks as a plain
+# file, ~/.agentmarks-journal) to the ~/.agentmarks/ directory layout.
+# Cheap and idempotent -- safe to call from every command; once migrated
+# it's just a couple of stat checks that find nothing left to do.
+am_migrate () {
+  local dir="$HOME/.agentmarks"
+  if [ -f "$dir" ] && [ ! -d "$dir" ]; then
+    # The old marks file and the new marks directory share this exact
+    # path, so the file has to move out of the way before mkdir can
+    # claim it.
+    local tmp; tmp="$(mktemp "$HOME/.agentmarks-migrate.XXXXXX")"
+    mv "$dir" "$tmp"
+    mkdir -p "$dir"
+    mv "$tmp" "$dir/marks.tsv"
+  else
+    mkdir -p "$dir"
+  fi
+  if [ -f "$HOME/.agentmarks-journal" ] && [ ! -f "$dir/journal.tsv" ]; then
+    mv "$HOME/.agentmarks-journal" "$dir/journal.tsv"
+  fi
+  rm -f "$HOME/.agentmarks-journal.lock" "$HOME/.agentmarks-journal.tmp" 2>/dev/null
+}
 
 am_claude_dirs () {
   if [ -n "$AGENTMARKS_CONFIG_DIRS" ]; then
@@ -98,7 +123,8 @@ am_first_msg () {
 }
 
 xs () {
-  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks}"
+  am_migrate
+  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks/marks.tsv}"
   [ -n "$1" ] || { echo "usage: xs <name> [note...]" >&2; return 1; }
   local name="$1"; shift
   local note="$*"
@@ -149,7 +175,8 @@ xs () {
 }
 
 xg () {
-  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks}"
+  am_migrate
+  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks/marks.tsv}"
   [ -s "$AGENTMARKS_FILE" ] || { echo "xg: no marks yet" >&2; return 1; }
   local name="$1" line
   if [ -z "$name" ]; then
@@ -188,7 +215,8 @@ xg () {
 }
 
 xl () {
-  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks}"
+  am_migrate
+  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks/marks.tsv}"
   local long=0
   case "$1" in -l|--long|--full) long=1 ;; esac
   [ -s "$AGENTMARKS_FILE" ] || { echo "xl: no marks yet" >&2; return 1; }
@@ -215,8 +243,9 @@ xl () {
 # xj: journal of ended sessions, written by the agentmarks-sessionend hook
 # (make install-hook). Newest first; optional pattern filters, else last 20.
 xj () {
-  local j="${AGENTMARKS_JOURNAL:-$HOME/.agentmarks-journal}"
-  local marksfile="${AGENTMARKS_FILE:-$HOME/.agentmarks}"
+  am_migrate
+  local j="${AGENTMARKS_JOURNAL:-$HOME/.agentmarks/journal.tsv}"
+  local marksfile="${AGENTMARKS_FILE:-$HOME/.agentmarks/marks.tsv}"
   [ -s "$j" ] || {
     echo "xj: no journal yet — install the SessionEnd hook: make install-hook" >&2
     return 1
@@ -234,7 +263,8 @@ xj () {
 # xq: is this session saved? Inside a Claude Code session (`! xq`) checks
 # that exact session; outside, shows any marks for the current directory.
 xq () {
-  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks}"
+  am_migrate
+  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks/marks.tsv}"
   local hits
   if [ -n "$CLAUDE_CODE_SESSION_ID" ]; then
     hits="$(awk -F'\t' -v s="$CLAUDE_CODE_SESSION_ID" \
@@ -258,7 +288,8 @@ xq () {
 }
 
 xd () {
-  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks}"
+  am_migrate
+  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks/marks.tsv}"
   [ -n "$1" ] || { echo "usage: xd <name>" >&2; return 1; }
   [ -s "$AGENTMARKS_FILE" ] || { echo "xd: no marks yet" >&2; return 1; }
   grep -q "^$1$(printf '\t')" "$AGENTMARKS_FILE" \
@@ -273,7 +304,7 @@ xd () {
 # bashcompinit loaded will pick this up as well since it uses the same
 # `complete` builtin, but this isn't tested under plain zsh.
 am_complete () {
-  local f="${AGENTMARKS_FILE:-$HOME/.agentmarks}"
+  local f="${AGENTMARKS_FILE:-$HOME/.agentmarks/marks.tsv}"
   [ -r "$f" ] || return 0
   local cur=${COMP_WORDS[COMP_CWORD]}
   COMPREPLY=( $(compgen -W "$(cut -f1 "$f" 2>/dev/null)" -- "$cur") )

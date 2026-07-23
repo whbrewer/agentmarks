@@ -15,6 +15,12 @@
 
 [ -n "$AGENTMARKS_IN_HOOK" ] && exit 0  # must not recurse into our own claude -p
 
+# Reuse the marks/journal migration logic from agentmarks.sh, installed
+# alongside this hook (defines am_migrate; harmless to source here even
+# though this shell also picks up xs/xg/etc. unused).
+. "$(dirname "$(readlink -f "$0")")/agentmarks.sh" 2>/dev/null
+am_migrate 2>/dev/null
+
 IN="$(cat)"
 sid="$(jq -r '.session_id // empty' <<<"$IN")"
 tp="$(jq -r '.transcript_path // empty' <<<"$IN")"
@@ -22,7 +28,7 @@ cwd="$(jq -r '.cwd // empty' <<<"$IN")"
 reason="$(jq -r '.reason // "exit"' <<<"$IN")"
 [ -n "$sid" ] && [ -f "$tp" ] || exit 0
 home="${tp%/projects/*}"
-journal="${AGENTMARKS_JOURNAL:-$HOME/.agentmarks-journal}"
+journal="${AGENTMARKS_JOURNAL:-$HOME/.agentmarks/journal.tsv}"
 
 user_and_assistant_text () {
   jq -r 'select(.type == "user" or .type == "assistant")
