@@ -107,6 +107,18 @@ am_account () {
   esac
 }
 
+am_truncate () {
+  # Truncate $1 to at most $2 chars total, ellipsis included, so the
+  # displayed width never exceeds $2 (e.g. "traced Fugaku embedding
+  # privacy risk, AIDRIN metrics" is exactly 52 chars, the default cap).
+  local s="$1" max="$2"
+  if [ "${#s}" -gt "$max" ]; then
+    printf '%s...' "${s:0:$((max - 3))}"
+  else
+    printf '%s' "$s"
+  fi
+}
+
 am_first_msg () {
   # First real user message of a session file ($1), one line, trimmed.
   if am_is_codex "$1"; then
@@ -226,6 +238,7 @@ xl () {
       printf 'NAME\tTOOL\tACCOUNT\tDIR\tNOTE\tDATE\n'
     fi
     local IFS=$'\t' name dir sid note date first home tool
+    local maxlen="${AGENTMARKS_NOTE_MAXLEN:-52}"
     while read -r name dir sid note date first home tool; do
       tool="${tool:-claude}"
       [ -n "$home" ] || { [ "$tool" = codex ] && home="$HOME/.codex" || home="$HOME/.claude"; }
@@ -234,7 +247,7 @@ xl () {
           "$name" "$tool" "$(am_account "$home")" "$dir" "$note" "$date" "$first"
       else
         printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-          "$name" "$tool" "$(am_account "$home")" "$dir" "$note" "$date"
+          "$name" "$tool" "$(am_account "$home")" "$dir" "$(am_truncate "$note" "$maxlen")" "$date"
       fi
     done < "$AGENTMARKS_FILE"
   } | column -t -s"$(printf '\t')"
