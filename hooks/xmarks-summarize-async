@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Background helper spawned (detached, via setsid) by xmarks-sessionend:
-# asks haiku for a short summary of one session, then patches its journal
-# row in place. Runs independent of the hook and of Claude Code entirely,
-# so it's free to take whatever time an LLM call needs without risking
+# asks haiku for a short summary of one session, then patches its row in
+# place. Runs independent of the hook and of Claude Code entirely, so
+# it's free to take whatever time an LLM call needs without risking
 # "hook cancelled". Any failure here — no network, spend limit reached,
 # `claude` missing, timeout — exits quietly; the heuristic summary
-# xmarks-sessionend already wrote to the journal stands unchanged.
+# xmarks-sessionend already wrote stands unchanged.
 
-sid="$1" journal="$2" cwd="$3" home="$4" reason="$5"
+sid="$1" sessions="$2" cwd="$3" home="$4" reason="$5"
 excerpt="$(cat)"
 
 summary="$(cd "${TMPDIR:-/tmp}" && printf '%s\n' "$excerpt" \
@@ -18,11 +18,19 @@ summary="$(cd "${TMPDIR:-/tmp}" && printf '%s\n' "$excerpt" \
 
 (
   flock -w 5 200 || exit 0
+  old="$([ -f "$sessions" ] && jq -c --arg s "$sid" 'select(.session_id == $s)' "$sessions" | tail -1)"
+  starred="$(jq -r '.starred // false' <<<"${old:-null}" 2>/dev/null)"
+  name="$(jq -r '.name // empty' <<<"${old:-null}" 2>/dev/null)"
+  note="$(jq -r '.note // empty' <<<"${old:-null}" 2>/dev/null)"
+  tool="$(jq -r '.tool // "claude"' <<<"${old:-null}" 2>/dev/null)"
   {
-    [ -f "$journal" ] && jq -c --arg s "$sid" 'select(.session_id != $s)' "$journal"
+    [ -f "$sessions" ] && jq -c --arg s "$sid" 'select(.session_id != $s)' "$sessions"
     jq -nc --arg date "$(date '+%F %H:%M')" --arg sid "$sid" --arg dir "$cwd" \
-      --arg home "$home" --arg reason "$reason" --arg summary "$summary" \
-      '{date: $date, session_id: $sid, dir: $dir, home: $home,
-        reason: $reason, summary: $summary}'
-  } > "$journal.tmp" && mv "$journal.tmp" "$journal"
-) 200>"$journal.lock"
+      --arg home "$home" --arg tool "$tool" --arg reason "$reason" --arg summary "$summary" \
+      --argjson starred "${starred:-false}" --arg name "$name" --arg note "$note" \
+      '{date: $date, session_id: $sid, dir: $dir, home: $home, tool: $tool,
+        reason: $reason, summary: $summary, starred: $starred,
+        name: (if $name == "" then null else $name end),
+        note: (if $note == "" then null else $note end)}'
+  } > "$sessions.tmp" && mv "$sessions.tmp" "$sessions"
+) 200>"$sessions.lock"

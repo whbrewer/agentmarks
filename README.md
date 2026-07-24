@@ -32,16 +32,22 @@ it's set up wherever the `source` line runs.
 ## Usage
 
 ```bash
-xs <name> [note...]   # save a mark for the session in the current dir
-xg <name|hash>        # cd there and resume the session (name from xl, or
-                      # a journal HASH from xj — no xs needed)
-xl [-l|--long]        # list marks; -l adds the first-message preview column
-xd <name>             # remove a mark
-xq                    # is this session saved? (inside a session: `! xq`)
-xj [pattern]          # journal of past sessions, cross-referenced with marks
+xs <name> [note...]   # star the session in the current dir; [note...] is
+                      # optional and always overwrites whatever
+                      # description (auto or previous) was showing
+xg <name|hash>        # cd there and resume the session (a starred name
+                      # from xl, or any session's HASH from xj — no xs
+                      # needed)
+xl [-l|--long]        # list starred sessions; -l shows ACCOUNT, the full
+                      # path, and the untruncated NOTE/SUMMARY
+xd <name>             # un-star a session (kept in xj, just drops out of
+                      # xl — nothing is deleted)
+xq                    # is this session/dir starred? (inside a session: `! xq`)
+xj [-l|--long] [pattern]  # every session, oldest to newest; -l shows
+                      # ACCOUNT and the full path
 ```
 
-The best way to save a mark is from *inside* the session you want to keep:
+The best way to star a session is from *inside* it:
 
 ```
 ! xs pact-schema the one where we designed the pact schema
@@ -50,7 +56,9 @@ The best way to save a mark is from *inside* the session you want to keep:
 Shells spawned by Claude Code export `CLAUDE_CODE_SESSION_ID`, so this marks
 the exact session — no guessing. Run outside a session, `xs` falls back to
 the most recent session for the current directory, across all tools and
-accounts.
+accounts. The `[note...]` is optional — if you skip it, `xl`/`xj` fall
+back to the session's auto-generated summary once one exists (see below),
+so a session never needs a manual description to show up meaningfully.
 
 ## /mark skill: let Claude write the note
 
@@ -60,52 +68,57 @@ a mark name, write a ≤10-word summary of what the session actually did,
 and save it via `xs` — the part of a bookmark bashmarks could never
 automate. New sessions pick the skill up automatically.
 
-Marks are stored in `~/.xmarks/marks.jsonl` (one JSON object per line,
-override with `$XMARKS_FILE`). Each mark keeps a copy of the session's first user
-message, so listings stay meaningful even after the agent expires the
-session file itself. If a session is gone, `xg` still cd's to the
-directory and warns.
+All state lives in one file, `~/.xmarks/sessions.jsonl` (one JSON object
+per line, one per session, override with `$XMARKS_SESSIONS`). Starring
+a session with `xs` doesn't create a separate record — it just sets
+`starred`/`name`/`note` on that session's existing row, alongside the
+`date`/`reason`/`summary` fields the hooks already track (see below). If
+a session's transcript is gone, `xg` still cd's to the directory and
+warns.
 
-All xmarks state lives under `~/.xmarks/` (marks, journal, and
-their lock/tmp files during writes) rather than loose dotfiles in `$HOME`.
 Upgrading from an older version migrates automatically the first time any
-command runs — the old `~/.xmarks` file and `~/.xmarks-journal`
-are moved in place, and TSV `marks.tsv`/`journal.tsv` from a pre-JSONL
-version are converted to `marks.jsonl`/`journal.jsonl` (the originals are
-kept as `marks.tsv.bak`/`journal.tsv.bak`). Nothing is lost.
+command runs — the old `~/.xmarks` file and `~/.xmarks-journal` are moved
+in place, TSV `marks.tsv`/`journal.tsv` from a pre-JSONL version are
+converted to `marks.jsonl`/`journal.jsonl`, and — the last step — those
+two files are merged into one `sessions.jsonl` (a mark becomes
+`starred: true` plus `name`/`note` on the journal row for the same
+session id; a marked session with no journal row at all, e.g. a Codex
+mark or one that predates the journal, becomes its own starred-only row).
+Every intermediate file is kept as `.bak`, never deleted, so a conversion
+mistake is always recoverable.
 
 ## Session journal: auto-summaries on exit (and before)
 
 `make install-hook` registers a `SessionEnd` hook and a `UserPromptSubmit`
 hook in every `~/.claude*` settings.json (each backed up to `.bak` first).
-When a Claude Code session ends, the SessionEnd hook appends one row to
-`~/.xmarks/journal.jsonl`: date, session id, dir, account, and an
-auto-generated summary — by default it asks haiku via `claude -p` for
-≤12 words about the transcript (a few seconds, a fraction of a cent per
-session); set `XMARKS_AUTOSUMMARY=first` to skip the LLM and use the
-session's first user message instead.
+When a Claude Code session ends, the SessionEnd hook updates that
+session's row with the real outcome: `reason` and an auto-generated
+`summary` — by default it asks haiku via `claude -p` for ≤12 words about
+the transcript (a few seconds, a fraction of a cent per session); set
+`XMARKS_AUTOSUMMARY=first` to skip the LLM and use the session's first
+user message instead. Starred sessions keep their `name`/`note`
+untouched — this only ever updates `date`/`reason`/`summary`.
 
 The UserPromptSubmit hook writes an earlier, cheaper version of that same
-row the moment the *first* prompt is sent — no LLM call, just that
+update the moment the *first* prompt is sent — no LLM call, just that
 prompt's own text (truncated) as the summary, with `reason` set to
 `in_progress`. This exists for sessions that never reach a clean exit —
 an SSH connection dropping partway through, say — which would otherwise
-vanish from the journal entirely; the first prompt is usually the best
-one-line summary of the session's intent anyway. If SessionEnd does fire
-afterward, it overwrites this row with the real summary as usual — never
-two rows for one session. Later prompts in the same session are a no-op
-for this hook (it exits as soon as it sees a row already exists).
+vanish entirely; the first prompt is usually the best one-line summary of
+the session's intent anyway. If SessionEnd does fire afterward, it
+overwrites `reason`/`summary` with the real outcome as usual — never two
+rows for one session. Later prompts in the same session are a no-op for
+this hook (it exits as soon as it sees a row already exists).
 
-Browse with `xj` (oldest to newest, latest at the bottom; last 20 by
-default) or `xj <pattern>` to filter. Each row's MARK column shows the
-mark name if that session was also `xs`'d (looked up by session id
-against `~/.xmarks/marks.jsonl`), or `-` if not — so you can tell at a
-glance which journaled sessions are already bookmarked. Every row also
+Browse everything with `xj` (oldest to newest, latest at the bottom; last
+20 by default) or `xj <pattern>` to filter. Each row's MARK column shows
+the session's name if it's starred, or `-` if not, and every row also
 gets a HASH column (the first 6 characters of its session id) that
 `xg <hash>` resumes directly — so a session never needs an `xs` at all to
-be one command away. The default view hides the ACCOUNT column and
-shortens SUMMARY to keep things narrow; `xj -l`/`--long` shows both in
-full. `make uninstall-hook` removes both hooks.
+be one command away. The default view hides ACCOUNT, shows just the dir's
+basename, and shortens SUMMARY to keep things narrow; `xj -l`/`--long`
+shows ACCOUNT and the full path/untruncated SUMMARY. `make uninstall-hook`
+removes both hooks.
 
 The SessionEnd hook itself always returns in well under a second: it
 writes the heuristic summary synchronously, then — if an LLM summary is
@@ -113,21 +126,20 @@ wanted — launches a fully detached background job
 (`xmarks-summarize-async`, via `setsid`) that asks haiku and patches the
 row in place once it's ready. This matters because SessionEnd hooks get
 killed if they run too long; earlier versions called `claude -p` inline
-and could be cancelled outright (losing the journal entry) if that call
-stalled — e.g. from a spend-limit block. Now a stalled or failed LLM call
-just leaves the heuristic summary in place; the hook itself never waits
-on it.
+and could be cancelled outright (losing the update) if that call stalled
+— e.g. from a spend-limit block. Now a stalled or failed LLM call just
+leaves the heuristic summary in place; the hook itself never waits on it.
 
 ## Multiple accounts and tools
 
-Each mark records which tool it belongs to (`claude` or `codex`) and the
+Each row records which tool it belongs to (`claude` or `codex`) and the
 home dir its session lives in (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`, e.g.
 `~/.claude-personal` vs `~/.claude-work`). `xg` dispatches accordingly —
 `CLAUDE_CONFIG_DIR=... claude --resume` or `CODEX_HOME=... codex resume` —
-so marks from every account and both tools share one list, and `xl` shows
-an ACCOUNT column for each (plus a TOOL column, but only when marks from
-both `claude` and `codex` actually coexist — otherwise it's dropped as a
-repeated no-op value).
+so sessions from every account and both tools share one file, and `xl`
+shows an ACCOUNT column for each (plus a TOOL column, but only when
+starred sessions from both `claude` and `codex` actually coexist —
+otherwise it's dropped as a repeated no-op value).
 
 When saving from inside a Claude Code session, the session's own id and
 config dir are used (Codex doesn't export a session id to child shells, so

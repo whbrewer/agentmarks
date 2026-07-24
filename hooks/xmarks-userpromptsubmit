@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # xmarks UserPromptSubmit hook — see README's "Session journal" section.
 #
-# Writes an early journal row after the session's *first* prompt, using
-# that prompt's own text (truncated, no LLM call) as the summary and
+# Writes an early row after the session's *first* prompt, using that
+# prompt's own text (truncated, no LLM call) as the summary and
 # "in_progress" as the reason. Exists because SessionEnd never fires if
 # the session dies without a clean exit (e.g. a dropped SSH connection),
-# which otherwise loses the session from the journal entirely — the first
-# prompt usually carries the session's main intent anyway, so it's a
-# reasonable summary to have on record even if nothing else ever runs.
+# which otherwise loses the session entirely — the first prompt usually
+# carries the session's main intent anyway, so it's a reasonable summary
+# to have on record even if nothing else ever runs.
 #
 # Fires on every prompt, so on the 2nd+ prompt of a session this exits
-# immediately once it sees a row already exists for this session id.
-# If xmarks-sessionend does fire later, its dedup-by-session-id logic
-# overwrites this row with the real summary — never two rows for one
-# session.
+# immediately once it sees a row already exists for this session id. If
+# xmarks-sessionend does fire later, its preserve-on-write logic
+# overwrites this row's date/reason/summary but keeps starred/name/note —
+# never two rows for one session.
 
 [ -n "$XMARKS_IN_HOOK" ] && exit 0  # must not recurse into our own claude -p
 
@@ -27,9 +27,9 @@ cwd="$(jq -r '.cwd // empty' <<<"$IN")"
 prompt="$(jq -r '.user_input // empty' <<<"$IN")"
 [ -n "$sid" ] && [ -n "$tp" ] || exit 0
 home="${tp%/projects/*}"
-journal="${XMARKS_JOURNAL:-$HOME/.xmarks/journal.jsonl}"
+sessions="${XMARKS_SESSIONS:-$HOME/.xmarks/sessions.jsonl}"
 
-[ -f "$journal" ] && jq -e --arg s "$sid" 'select(.session_id == $s)' "$journal" \
+[ -f "$sessions" ] && jq -e --arg s "$sid" 'select(.session_id == $s)' "$sessions" \
   >/dev/null 2>&1 && exit 0
 
 summary="$(printf '%s' "$prompt" | tr '\t\n' '  ' | sed 's/^[[:space:]]*//' | cut -c1-100)"
@@ -38,10 +38,11 @@ summary="$(printf '%s' "$prompt" | tr '\t\n' '  ' | sed 's/^[[:space:]]*//' | cu
 (
   flock -w 5 200 || true
   {
-    [ -f "$journal" ] && jq -c --arg s "$sid" 'select(.session_id != $s)' "$journal"
+    [ -f "$sessions" ] && jq -c --arg s "$sid" 'select(.session_id != $s)' "$sessions"
     jq -nc --arg date "$(date '+%F %H:%M')" --arg sid "$sid" --arg dir "$cwd" \
       --arg home "$home" --arg summary "$summary" \
-      '{date: $date, session_id: $sid, dir: $dir, home: $home,
-        reason: "in_progress", summary: $summary}'
-  } > "$journal.tmp" && mv "$journal.tmp" "$journal"
-) 200>"$journal.lock"
+      '{date: $date, session_id: $sid, dir: $dir, home: $home, tool: "claude",
+        reason: "in_progress", summary: $summary, starred: false,
+        name: null, note: null}'
+  } > "$sessions.tmp" && mv "$sessions.tmp" "$sessions"
+) 200>"$sessions.lock"

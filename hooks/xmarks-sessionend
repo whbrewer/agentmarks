@@ -15,9 +15,9 @@
 
 [ -n "$XMARKS_IN_HOOK" ] && exit 0  # must not recurse into our own claude -p
 
-# Reuse the marks/journal migration logic from xmarks.sh, installed
-# alongside this hook (defines am_migrate; harmless to source here even
-# though this shell also picks up xs/xg/etc. unused).
+# Reuse the migration logic from xmarks.sh, installed alongside this hook
+# (defines am_migrate; harmless to source here even though this shell also
+# picks up xs/xg/etc. unused).
 . "$(dirname "$(readlink -f "$0")")/xmarks.sh" 2>/dev/null
 am_migrate 2>/dev/null
 
@@ -28,7 +28,7 @@ cwd="$(jq -r '.cwd // empty' <<<"$IN")"
 reason="$(jq -r '.reason // "exit"' <<<"$IN")"
 [ -n "$sid" ] && [ -f "$tp" ] || exit 0
 home="${tp%/projects/*}"
-journal="${XMARKS_JOURNAL:-$HOME/.xmarks/journal.jsonl}"
+sessions="${XMARKS_SESSIONS:-$HOME/.xmarks/sessions.jsonl}"
 
 user_and_assistant_text () {
   jq -r 'select(.type == "user" or .type == "assistant")
@@ -40,18 +40,29 @@ user_and_assistant_text () {
 }
 
 # Replaces any existing row for this session id (flock'd, so a background
-# LLM update from an earlier run of this hook can't race a fresh one).
+# LLM update from an earlier run of this hook can't race a fresh one),
+# preserving starred/name/note/tool -- a session `xs`'d mid-conversation
+# must not lose its mark when the exit summary comes in.
 write_row () {
   (
     flock -w 5 200 || true
+    local old starred name note tool
+    old="$([ -f "$sessions" ] && jq -c --arg s "$sid" 'select(.session_id == $s)' "$sessions" | tail -1)"
+    starred="$(jq -r '.starred // false' <<<"${old:-null}" 2>/dev/null)"
+    name="$(jq -r '.name // empty' <<<"${old:-null}" 2>/dev/null)"
+    note="$(jq -r '.note // empty' <<<"${old:-null}" 2>/dev/null)"
+    tool="$(jq -r '.tool // "claude"' <<<"${old:-null}" 2>/dev/null)"
     {
-      [ -f "$journal" ] && jq -c --arg s "$sid" 'select(.session_id != $s)' "$journal"
+      [ -f "$sessions" ] && jq -c --arg s "$sid" 'select(.session_id != $s)' "$sessions"
       jq -nc --arg date "$(date '+%F %H:%M')" --arg sid "$sid" --arg dir "$cwd" \
-        --arg home "$home" --arg reason "$reason" --arg summary "$1" \
-        '{date: $date, session_id: $sid, dir: $dir, home: $home,
-          reason: $reason, summary: $summary}'
-    } > "$journal.tmp" && mv "$journal.tmp" "$journal"
-  ) 200>"$journal.lock"
+        --arg home "$home" --arg tool "$tool" --arg reason "$reason" --arg summary "$1" \
+        --argjson starred "${starred:-false}" --arg name "$name" --arg note "$note" \
+        '{date: $date, session_id: $sid, dir: $dir, home: $home, tool: $tool,
+          reason: $reason, summary: $summary, starred: $starred,
+          name: (if $name == "" then null else $name end),
+          note: (if $note == "" then null else $note end)}'
+    } > "$sessions.tmp" && mv "$sessions.tmp" "$sessions"
+  ) 200>"$sessions.lock"
 }
 
 first="$(user_and_assistant_text | head -1 | tr '\t' ' ' | cut -c1-100)"
@@ -61,7 +72,7 @@ if [ "${XMARKS_AUTOSUMMARY:-llm}" = llm ] && command -v claude >/dev/null 2>&1; 
   excerpt="$(user_and_assistant_text | tail -40 | cut -c1-400)"
   helper="$(dirname "$(readlink -f "$0")")/xmarks-summarize-async"
   if [ -n "$excerpt" ] && [ -x "$helper" ]; then
-    setsid "$helper" "$sid" "$journal" "$cwd" "$home" "$reason" \
+    setsid "$helper" "$sid" "$sessions" "$cwd" "$home" "$reason" \
       <<<"$excerpt" >/dev/null 2>&1 &
     disown
   fi

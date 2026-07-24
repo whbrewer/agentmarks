@@ -42,4 +42,5 @@ this directory and resume this exact conversation.
 - `xs: command not found` — xmarks isn't installed; tell the user to
   run `make install` in the xmarks repo.
 - If the user asks to overwrite or rename an existing mark, `xs` with an
-  existing name replaces it, and `xd <name>` deletes one.
+  existing name replaces it, and `xd <name>` un-stars one (the session
+  stays in `xj`, it just drops out of `xl`).
