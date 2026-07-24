@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
-# agentmarks SessionEnd hook — see README's "Session journal" section.
+# xmarks SessionEnd hook — see README's "Session journal" section.
 #
 # Writes a fast heuristic summary (the session's first user message)
 # synchronously, so this hook always returns in a fraction of a second and
-# can never be killed for running too long. If AGENTMARKS_AUTOSUMMARY is
+# can never be killed for running too long. If XMARKS_AUTOSUMMARY is
 # unset or "llm" (the default), it also launches a fully detached
-# background job (agentmarks-summarize-async) that asks haiku for a
+# background job (xmarks-summarize-async) that asks haiku for a
 # better <=12-word summary and patches the row in place once it's ready —
 # after this hook, and possibly the whole claude process, has exited. If
 # that call fails for any reason (no network, spend limit reached,
 # `claude` missing, timeout), the heuristic summary already on disk
 # stands; nothing here depends on the LLM call succeeding.
-# Set AGENTMARKS_AUTOSUMMARY=first to skip the LLM step entirely.
+# Set XMARKS_AUTOSUMMARY=first to skip the LLM step entirely.
 
-[ -n "$AGENTMARKS_IN_HOOK" ] && exit 0  # must not recurse into our own claude -p
+[ -n "$XMARKS_IN_HOOK" ] && exit 0  # must not recurse into our own claude -p
 
-# Reuse the marks/journal migration logic from agentmarks.sh, installed
+# Reuse the marks/journal migration logic from xmarks.sh, installed
 # alongside this hook (defines am_migrate; harmless to source here even
 # though this shell also picks up xs/xg/etc. unused).
-. "$(dirname "$(readlink -f "$0")")/agentmarks.sh" 2>/dev/null
+. "$(dirname "$(readlink -f "$0")")/xmarks.sh" 2>/dev/null
 am_migrate 2>/dev/null
 
 IN="$(cat)"
@@ -28,7 +28,7 @@ cwd="$(jq -r '.cwd // empty' <<<"$IN")"
 reason="$(jq -r '.reason // "exit"' <<<"$IN")"
 [ -n "$sid" ] && [ -f "$tp" ] || exit 0
 home="${tp%/projects/*}"
-journal="${AGENTMARKS_JOURNAL:-$HOME/.agentmarks/journal.tsv}"
+journal="${XMARKS_JOURNAL:-$HOME/.xmarks/journal.tsv}"
 
 user_and_assistant_text () {
   jq -r 'select(.type == "user" or .type == "assistant")
@@ -55,9 +55,9 @@ write_row () {
 first="$(user_and_assistant_text | head -1 | tr '\t' ' ' | cut -c1-100)"
 write_row "${first:--}"
 
-if [ "${AGENTMARKS_AUTOSUMMARY:-llm}" = llm ] && command -v claude >/dev/null 2>&1; then
+if [ "${XMARKS_AUTOSUMMARY:-llm}" = llm ] && command -v claude >/dev/null 2>&1; then
   excerpt="$(user_and_assistant_text | tail -40 | cut -c1-400)"
-  helper="$(dirname "$(readlink -f "$0")")/agentmarks-summarize-async"
+  helper="$(dirname "$(readlink -f "$0")")/xmarks-summarize-async"
   if [ -n "$excerpt" ] && [ -x "$helper" ]; then
     setsid "$helper" "$sid" "$journal" "$cwd" "$home" "$reason" \
       <<<"$excerpt" >/dev/null 2>&1 &

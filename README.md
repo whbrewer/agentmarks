@@ -1,4 +1,4 @@
-# agentmarks
+# xmarks
 
 Bashmarks-style bookmarks for coding-agent sessions (Claude Code and Codex
 CLI): save a mark, later jump back with one command that cd's into the
@@ -9,10 +9,10 @@ design notes.
 
 ```bash
 make install
-echo 'source ~/.local/bin/agentmarks.sh' >> ~/.bashrc
+echo 'source ~/.local/bin/xmarks.sh' >> ~/.bashrc
 ```
 
-`make install` puts `agentmarks.sh` plus the `xs/xg/xl/xd` command wrappers
+`make install` puts `xmarks.sh` plus the `xs/xg/xl/xd` command wrappers
 into `~/.local/bin` (override with `PREFIX=...`); `make uninstall` removes
 them. The wrappers exist because shells inside a Claude Code session
 (`! xs ...`) never read `.bashrc`; in interactive shells the sourced
@@ -24,7 +24,7 @@ bashrc's "not interactive" guard).
 Requires `jq` (for first-message previews). `fzf` is optional — if present,
 `xg` with no argument opens a fuzzy picker.
 
-Sourcing `agentmarks.sh` also registers bash tab completion for `xg`, `xd`,
+Sourcing `xmarks.sh` also registers bash tab completion for `xg`, `xd`,
 and `xs` — press `<TAB>` after any of them to complete an existing mark
 name. No separate step; it's set up wherever the `source` line runs.
 
@@ -58,16 +58,16 @@ a mark name, write a ≤10-word summary of what the session actually did,
 and save it via `xs` — the part of a bookmark bashmarks could never
 automate. New sessions pick the skill up automatically.
 
-Marks are stored in `~/.agentmarks/marks.jsonl` (one JSON object per line,
-override with `$AGENTMARKS_FILE`). Each mark keeps a copy of the session's first user
+Marks are stored in `~/.xmarks/marks.jsonl` (one JSON object per line,
+override with `$XMARKS_FILE`). Each mark keeps a copy of the session's first user
 message, so listings stay meaningful even after the agent expires the
 session file itself. If a session is gone, `xg` still cd's to the
 directory and warns.
 
-All agentmarks state lives under `~/.agentmarks/` (marks, journal, and
+All xmarks state lives under `~/.xmarks/` (marks, journal, and
 their lock/tmp files during writes) rather than loose dotfiles in `$HOME`.
 Upgrading from an older version migrates automatically the first time any
-command runs — the old `~/.agentmarks` file and `~/.agentmarks-journal`
+command runs — the old `~/.xmarks` file and `~/.xmarks-journal`
 are moved in place, and a TSV `marks.tsv` from a pre-JSONL version is
 converted to `marks.jsonl` (the original is kept as `marks.tsv.bak`).
 Nothing is lost.
@@ -76,15 +76,15 @@ Nothing is lost.
 
 `make install-hook` registers a `SessionEnd` hook in every `~/.claude*`
 settings.json (each backed up to `.bak` first). When a Claude Code session
-ends, the hook appends one row to `~/.agentmarks/journal.tsv`: date, session
+ends, the hook appends one row to `~/.xmarks/journal.tsv`: date, session
 id, dir, account, and an auto-generated summary — by default it asks haiku
 via `claude -p` for ≤12 words about the transcript (a few seconds, a
-fraction of a cent per session); set `AGENTMARKS_AUTOSUMMARY=first` to
+fraction of a cent per session); set `XMARKS_AUTOSUMMARY=first` to
 skip the LLM and use the session's first user message instead.
 
 Browse with `xj` (newest first, last 20) or `xj <pattern>` to filter. Each
 row's MARK column shows the mark name if that session was also `xs`'d
-(looked up by session id against `~/.agentmarks/marks.jsonl`), or `-` if not — so you
+(looked up by session id against `~/.xmarks/marks.jsonl`), or `-` if not — so you
 can tell at a glance which journaled sessions are already bookmarked.
 Unlike marks, the journal itself is automatic and unnamed — it's the
 safety net for sessions you forgot to mark. `make uninstall-hook` removes
@@ -92,7 +92,7 @@ the hook.
 
 The hook itself always returns in well under a second: it writes the
 heuristic summary synchronously, then — if an LLM summary is wanted —
-launches a fully detached background job (`agentmarks-summarize-async`,
+launches a fully detached background job (`xmarks-summarize-async`,
 via `setsid`) that asks haiku and patches the row in place once it's
 ready. This matters because SessionEnd hooks get killed if they run too
 long; earlier versions called `claude -p` inline and could be cancelled
@@ -118,4 +118,4 @@ searches every existing `~/.claude*` and `~/.codex*` home and takes the
 newest session for the current dir, whichever tool it came from. Codex has
 no per-project session layout, so its side of the search scans recent
 rollout files for a matching `cwd`. Restrict or reorder candidates with
-`AGENTMARKS_CONFIG_DIRS` / `AGENTMARKS_CODEX_HOMES` (colon-separated).
+`XMARKS_CONFIG_DIRS` / `XMARKS_CODEX_HOMES` (colon-separated).

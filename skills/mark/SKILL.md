@@ -1,11 +1,11 @@
 ---
 name: mark
-description: Bookmark the current Claude Code session with agentmarks, auto-generating a short summary as the note. Use when the user says /mark or asks to bookmark, mark, or save this session for later.
+description: Bookmark the current Claude Code session with xmarks, auto-generating a short summary as the note. Use when the user says /mark or asks to bookmark, mark, or save this session for later.
 ---
 
 # Mark this session
 
-Save an agentmarks bookmark for the current session by running the `xs`
+Save an xmarks bookmark for the current session by running the `xs`
 command, so the user can later run `xg <name>` in a terminal to cd back to
 this directory and resume this exact conversation.
 
@@ -28,7 +28,7 @@ this directory and resume this exact conversation.
    xs <name> <note>
    ```
 
-   `xs` is on PATH (installed by agentmarks' `make install`). Inside a
+   `xs` is on PATH (installed by xmarks' `make install`). Inside a
    Claude Code session it reads `CLAUDE_CODE_SESSION_ID` and
    `CLAUDE_CONFIG_DIR` from the environment, so it marks this exact
    session on the right account with no guessing. Do not quote the note
@@ -39,7 +39,7 @@ this directory and resume this exact conversation.
 
 ## Failure modes
 
-- `xs: command not found` — agentmarks isn't installed; tell the user to
-  run `make install` in the agentmarks repo.
+- `xs: command not found` — xmarks isn't installed; tell the user to
+  run `make install` in the xmarks repo.
 - If the user asks to overwrite or rename an existing mark, `xs` with an
   existing name replaces it, and `xd <name>` deletes one.

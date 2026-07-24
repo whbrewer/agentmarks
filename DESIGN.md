@@ -1,4 +1,4 @@
-# agentmarks — bashmarks-style bookmarks for coding-agent sessions
+# xmarks — bashmarks-style bookmarks for coding-agent sessions
 
 ## Goal
 Bookmark a Claude Code session the way bashmarks bookmarks directories:
@@ -8,7 +8,7 @@ run directory and (b) resumes the exact session, plus a short human note
 weeks later.
 
 Bashmarks verbs for reference: `s` save, `g` go, `l` list, `d` delete.
-Agentmarks equivalent: `xs`, `xg`, `xl`, `xd`.
+Xmarks equivalent: `xs`, `xg`, `xl`, `xd`.
 
 ## Raw material Claude Code already gives us
 - Sessions live at `~/.claude/projects/<munged-cwd>/<session-id>.jsonl`,
@@ -87,15 +87,15 @@ Code's own session cleanup/expiry.
   file at save time so listings survive expiry. (Whether/when Claude Code
   actually GCs jsonls: still unknown, but it no longer matters much.)
 - Verbs: settled on `xs/xg/xl/xd` after several rounds — `cm*` felt wrong
-  once the tool went multi-agent, and the obvious `as` (from agentmarks)
+  once the tool went multi-agent, and the obvious `as` (from xmarks)
   is the GNU assembler, which gcc finds via PATH, so an `as` wrapper in
   ~/.local/bin would hijack every C/Fortran build. The x* namespace is
   collision-free (xs/xl are Xen tools, but only on Xen hosts). `xg` with
   no args fzf-picks if fzf is installed (it isn't, currently).
-- Name: renamed claudemarks → agentmarks when Codex support landed
+- Name: renamed claudemarks → xmarks when Codex support landed
   (2026-07-22). A dead archived kanywst/claudemarks exists on GitHub
   (different design: a SessionEnd hook journaling every session);
-  "agentmarks" was free.
+  "xmarks" was free.
 
 ## Codex support (added same day)
 Codex CLI has the same primitives: `codex resume <uuid>`, sessions as
@@ -108,8 +108,8 @@ CLAUDE_CONFIG_DIR / CODEX_HOME. Codex exports no session id to child
 shells, so exact in-session marking stays Claude-only.
 
 ## Status
-Built, tested, installed: `agentmarks/` in this repo (agentmarks.sh,
+Built, tested, installed: `xmarks/` in this repo (xmarks.sh,
 xs dispatcher, Makefile, README). `make install` → ~/.local/bin;
-`source ~/.local/bin/agentmarks.sh` in .bashrc (above the interactive
-guard). Marks in ~/.agentmarks. Do v2 (auto-generated notes via /mark
+`source ~/.local/bin/xmarks.sh` in .bashrc (above the interactive
+guard). Marks in ~/.xmarks. Do v2 (auto-generated notes via /mark
 skill) only if this sticks.

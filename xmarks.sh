@@ -1,6 +1,6 @@
-# agentmarks — bashmarks-style bookmarks for coding-agent sessions
+# xmarks — bashmarks-style bookmarks for coding-agent sessions
 # (Claude Code and Codex CLI).
-# Source from .bashrc:  source ~/.local/bin/agentmarks.sh
+# Source from .bashrc:  source ~/.local/bin/xmarks.sh
 #
 #   xs <name> [note...]    save a mark for the current/most-recent session here
 #   xg [name]              cd to the mark's dir and resume its session
@@ -9,7 +9,7 @@
 #   xq                     is this session / directory marked?
 #   xj [pattern]           journal of past sessions, cross-referenced with marks
 #
-# State lives under ~/.agentmarks/:
+# State lives under ~/.xmarks/:
 #   marks.jsonl  one JSON object per line, one per mark:
 #                {name, dir, session_id, note, date, first_message, home, tool}
 #   journal.tsv  one line per ended session, written by the SessionEnd hook
@@ -23,35 +23,40 @@
 # `read` collapses adjacent tab delimiters since tab counts as IFS
 # whitespace regardless of what IFS is set to).
 #
-# Candidate homes when guessing: $AGENTMARKS_CONFIG_DIRS (colon-separated)
-# else every existing ~/.claude*; $AGENTMARKS_CODEX_HOMES else $CODEX_HOME
+# Candidate homes when guessing: $XMARKS_CONFIG_DIRS (colon-separated)
+# else every existing ~/.claude*; $XMARKS_CODEX_HOMES else $CODEX_HOME
 # else every existing ~/.codex*.
 
 # Resolved inside each function (not at source time): Claude Code's shell
 # snapshots restore functions but not unexported variables, so a top-level
 # assignment would be lost in `!` shells inside sessions.
 
-# One-time migration from the old flat dotfiles (~/.agentmarks as a plain
-# file, ~/.agentmarks-journal) to the ~/.agentmarks/ directory layout.
+# One-time migration from the old flat dotfiles (~/.xmarks as a plain
+# file, ~/.xmarks-journal) to the ~/.xmarks/ directory layout.
 # Cheap and idempotent -- safe to call from every command; once migrated
 # it's just a couple of stat checks that find nothing left to do.
 am_migrate () {
-  local dir="$HOME/.agentmarks"
+  local dir="$HOME/.xmarks"
+  # One-time migration from the pre-rename ~/.agentmarks/ directory (the
+  # repo was called agentmarks before it became xmarks).
+  if [ -d "$HOME/.agentmarks" ] && [ ! -e "$dir" ]; then
+    mv "$HOME/.agentmarks" "$dir"
+  fi
   if [ -f "$dir" ] && [ ! -d "$dir" ]; then
     # The old marks file and the new marks directory share this exact
     # path, so the file has to move out of the way before mkdir can
     # claim it.
-    local tmp; tmp="$(mktemp "$HOME/.agentmarks-migrate.XXXXXX")"
+    local tmp; tmp="$(mktemp "$HOME/.xmarks-migrate.XXXXXX")"
     mv "$dir" "$tmp"
     mkdir -p "$dir"
     mv "$tmp" "$dir/marks.tsv"
   else
     mkdir -p "$dir"
   fi
-  if [ -f "$HOME/.agentmarks-journal" ] && [ ! -f "$dir/journal.tsv" ]; then
-    mv "$HOME/.agentmarks-journal" "$dir/journal.tsv"
+  if [ -f "$HOME/.xmarks-journal" ] && [ ! -f "$dir/journal.tsv" ]; then
+    mv "$HOME/.xmarks-journal" "$dir/journal.tsv"
   fi
-  rm -f "$HOME/.agentmarks-journal.lock" "$HOME/.agentmarks-journal.tmp" 2>/dev/null
+  rm -f "$HOME/.xmarks-journal.lock" "$HOME/.xmarks-journal.tmp" 2>/dev/null
   # TSV -> JSONL, one-time: the old marks.tsv (8 tab-separated columns) is
   # kept as marks.tsv.bak rather than deleted, so a conversion mistake is
   # recoverable. jq's split("\t") -- unlike bash's `read` -- doesn't
@@ -70,8 +75,8 @@ am_migrate () {
 }
 
 am_claude_dirs () {
-  if [ -n "$AGENTMARKS_CONFIG_DIRS" ]; then
-    printf '%s\n' "$AGENTMARKS_CONFIG_DIRS" | tr ':' '\n'
+  if [ -n "$XMARKS_CONFIG_DIRS" ]; then
+    printf '%s\n' "$XMARKS_CONFIG_DIRS" | tr ':' '\n'
   else
     local d
     for d in "$HOME"/.claude "$HOME"/.claude-*; do
@@ -81,8 +86,8 @@ am_claude_dirs () {
 }
 
 am_codex_homes () {
-  if [ -n "$AGENTMARKS_CODEX_HOMES" ]; then
-    printf '%s\n' "$AGENTMARKS_CODEX_HOMES" | tr ':' '\n'
+  if [ -n "$XMARKS_CODEX_HOMES" ]; then
+    printf '%s\n' "$XMARKS_CODEX_HOMES" | tr ':' '\n'
   elif [ -n "$CODEX_HOME" ]; then
     printf '%s\n' "$CODEX_HOME"
   else
@@ -157,7 +162,7 @@ am_first_msg () {
 
 xs () {
   am_migrate
-  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks/marks.jsonl}"
+  local XMARKS_FILE="${XMARKS_FILE:-$HOME/.xmarks/marks.jsonl}"
   [ -n "$1" ] || { echo "usage: xs <name> [note...]" >&2; return 1; }
   local name="$1"; shift
   local note="$*"
@@ -200,32 +205,32 @@ xs () {
   fi
   local first; first="$(am_first_msg "$file")"
   {
-    [ -f "$AGENTMARKS_FILE" ] && jq -c --arg n "$name" 'select(.name != $n)' "$AGENTMARKS_FILE"
+    [ -f "$XMARKS_FILE" ] && jq -c --arg n "$name" 'select(.name != $n)' "$XMARKS_FILE"
     jq -n -c \
       --arg name "$name" --arg dir "$markdir" --arg sid "$sid" \
       --arg note "${note:--}" --arg date "$(date '+%F %H:%M')" \
       --arg first "${first:--}" --arg home "$home" --arg tool "$tool" \
       '{name: $name, dir: $dir, session_id: $sid, note: $note, date: $date,
         first_message: $first, home: $home, tool: $tool}'
-  } > "$AGENTMARKS_FILE.tmp" && mv "$AGENTMARKS_FILE.tmp" "$AGENTMARKS_FILE"
+  } > "$XMARKS_FILE.tmp" && mv "$XMARKS_FILE.tmp" "$XMARKS_FILE"
   echo "marked '$name' → $sid  [$tool/$(am_account "$home")]  ($markdir)"
 }
 
 xg () {
   am_migrate
-  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks/marks.jsonl}"
-  [ -s "$AGENTMARKS_FILE" ] || { echo "xg: no marks yet" >&2; return 1; }
+  local XMARKS_FILE="${XMARKS_FILE:-$HOME/.xmarks/marks.jsonl}"
+  [ -s "$XMARKS_FILE" ] || { echo "xg: no marks yet" >&2; return 1; }
   local name="$1" line
   if [ -z "$name" ]; then
     if command -v fzf >/dev/null 2>&1; then
-      line="$(jq -r '[.name, .note, .first_message] | @tsv' "$AGENTMARKS_FILE" \
+      line="$(jq -r '[.name, .note, .first_message] | @tsv' "$XMARKS_FILE" \
         | fzf --delimiter='\t' --with-nth=1,2,3)" || return 1
       name="$(printf '%s' "$line" | cut -f1)"
     else
       xl; printf 'usage: xg <name>\n' >&2; return 1
     fi
   fi
-  line="$(jq -c --arg n "$name" 'select(.name == $n)' "$AGENTMARKS_FILE" | tail -1)"
+  line="$(jq -c --arg n "$name" 'select(.name == $n)' "$XMARKS_FILE" | tail -1)"
   [ -n "$line" ] || { echo "xg: no such mark: $name" >&2; return 1; }
   local dir sid home tool
   dir="$(jq -r '.dir' <<<"$line")"
@@ -254,14 +259,14 @@ xg () {
 
 xl () {
   am_migrate
-  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks/marks.jsonl}"
+  local XMARKS_FILE="${XMARKS_FILE:-$HOME/.xmarks/marks.jsonl}"
   local long=0
   case "$1" in -l|--long|--full) long=1 ;; esac
-  [ -s "$AGENTMARKS_FILE" ] || { echo "xl: no marks yet" >&2; return 1; }
+  [ -s "$XMARKS_FILE" ] || { echo "xl: no marks yet" >&2; return 1; }
   # TOOL is only worth a column when marks actually mix tools; with every
   # session on claude (the common case) it's a repeated no-op value.
   local show_tool=0
-  [ "$(jq -s 'any(.[]; .tool == "codex")' "$AGENTMARKS_FILE")" = true ] && show_tool=1
+  [ "$(jq -s 'any(.[]; .tool == "codex")' "$XMARKS_FILE")" = true ] && show_tool=1
   { if [ "$long" = 1 ]; then
       if [ "$show_tool" = 1 ]; then
         printf 'NAME\tTOOL\tACCOUNT\tDIR\tNOTE\tDATE\tFIRST MESSAGE\n'
@@ -276,7 +281,7 @@ xl () {
       fi
     fi
     local IFS=$'\x1f' name dir sid note date first home tool
-    local maxlen="${AGENTMARKS_NOTE_MAXLEN:-52}"
+    local maxlen="${XMARKS_NOTE_MAXLEN:-52}"
     while read -r name dir sid note date first home tool; do
       tool="${tool:-claude}"
       [ -n "$home" ] || { [ "$tool" = codex ] && home="$HOME/.codex" || home="$HOME/.claude"; }
@@ -302,16 +307,16 @@ xl () {
         fi
       fi
     done < <(jq -r '[.name, .dir, .session_id, .note, .date, .first_message, .home, .tool]
-                    | join("")' "$AGENTMARKS_FILE")
+                    | join("")' "$XMARKS_FILE")
   } | column -t -s"$(printf '\t')"
 }
 
-# xj: journal of ended sessions, written by the agentmarks-sessionend hook
+# xj: journal of ended sessions, written by the xmarks-sessionend hook
 # (make install-hook). Newest first; optional pattern filters, else last 20.
 xj () {
   am_migrate
-  local j="${AGENTMARKS_JOURNAL:-$HOME/.agentmarks/journal.tsv}"
-  local marksfile="${AGENTMARKS_FILE:-$HOME/.agentmarks/marks.jsonl}"
+  local j="${XMARKS_JOURNAL:-$HOME/.xmarks/journal.tsv}"
+  local marksfile="${XMARKS_FILE:-$HOME/.xmarks/marks.jsonl}"
   [ -s "$j" ] || {
     echo "xj: no journal yet — install the SessionEnd hook: make install-hook" >&2
     return 1
@@ -330,11 +335,11 @@ xj () {
 # that exact session; outside, shows any marks for the current directory.
 xq () {
   am_migrate
-  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks/marks.jsonl}"
+  local XMARKS_FILE="${XMARKS_FILE:-$HOME/.xmarks/marks.jsonl}"
   local hits
   if [ -n "$CLAUDE_CODE_SESSION_ID" ]; then
     hits="$(jq -r --arg s "$CLAUDE_CODE_SESSION_ID" \
-      'select(.session_id == $s) | "  " + .name + "  (" + .note + ")"' "$AGENTMARKS_FILE" 2>/dev/null)"
+      'select(.session_id == $s) | "  " + .name + "  (" + .note + ")"' "$XMARKS_FILE" 2>/dev/null)"
     if [ -n "$hits" ]; then
       echo "this session is marked:"; printf '%s\n' "$hits"
     else
@@ -343,7 +348,7 @@ xq () {
     fi
   else
     hits="$(jq -r --arg d "$PWD" \
-      'select(.dir == $d) | "  " + .name + "  (" + .note + ")"' "$AGENTMARKS_FILE" 2>/dev/null)"
+      'select(.dir == $d) | "  " + .name + "  (" + .note + ")"' "$XMARKS_FILE" 2>/dev/null)"
     if [ -n "$hits" ]; then
       echo "marks for $PWD:"; printf '%s\n' "$hits"
     else
@@ -355,13 +360,13 @@ xq () {
 
 xd () {
   am_migrate
-  local AGENTMARKS_FILE="${AGENTMARKS_FILE:-$HOME/.agentmarks/marks.jsonl}"
+  local XMARKS_FILE="${XMARKS_FILE:-$HOME/.xmarks/marks.jsonl}"
   [ -n "$1" ] || { echo "usage: xd <name>" >&2; return 1; }
-  [ -s "$AGENTMARKS_FILE" ] || { echo "xd: no marks yet" >&2; return 1; }
-  jq -e --arg n "$1" 'select(.name == $n)' "$AGENTMARKS_FILE" >/dev/null 2>&1 \
+  [ -s "$XMARKS_FILE" ] || { echo "xd: no marks yet" >&2; return 1; }
+  jq -e --arg n "$1" 'select(.name == $n)' "$XMARKS_FILE" >/dev/null 2>&1 \
     || { echo "xd: no such mark: $1" >&2; return 1; }
-  jq -c --arg n "$1" 'select(.name != $n)' "$AGENTMARKS_FILE" > "$AGENTMARKS_FILE.tmp" \
-    && mv "$AGENTMARKS_FILE.tmp" "$AGENTMARKS_FILE"
+  jq -c --arg n "$1" 'select(.name != $n)' "$XMARKS_FILE" > "$XMARKS_FILE.tmp" \
+    && mv "$XMARKS_FILE.tmp" "$XMARKS_FILE"
   echo "removed '$1'"
 }
 
@@ -370,7 +375,7 @@ xd () {
 # bashcompinit loaded will pick this up as well since it uses the same
 # `complete` builtin, but this isn't tested under plain zsh.
 am_complete () {
-  local f="${AGENTMARKS_FILE:-$HOME/.agentmarks/marks.jsonl}"
+  local f="${XMARKS_FILE:-$HOME/.xmarks/marks.jsonl}"
   [ -r "$f" ] || return 0
   local cur=${COMP_WORDS[COMP_CWORD]}
   COMPREPLY=( $(compgen -W "$(jq -r '.name' "$f" 2>/dev/null)" -- "$cur") )
