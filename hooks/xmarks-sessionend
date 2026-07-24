@@ -28,7 +28,7 @@ cwd="$(jq -r '.cwd // empty' <<<"$IN")"
 reason="$(jq -r '.reason // "exit"' <<<"$IN")"
 [ -n "$sid" ] && [ -f "$tp" ] || exit 0
 home="${tp%/projects/*}"
-journal="${XMARKS_JOURNAL:-$HOME/.xmarks/journal.tsv}"
+journal="${XMARKS_JOURNAL:-$HOME/.xmarks/journal.jsonl}"
 
 user_and_assistant_text () {
   jq -r 'select(.type == "user" or .type == "assistant")
@@ -45,9 +45,11 @@ write_row () {
   (
     flock -w 5 200 || true
     {
-      [ -f "$journal" ] && awk -F'\t' -v s="$sid" '$2 != s' "$journal"
-      printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$(date '+%F %H:%M')" "$sid" "$cwd" "$home" "$reason" "$1"
+      [ -f "$journal" ] && jq -c --arg s "$sid" 'select(.session_id != $s)' "$journal"
+      jq -nc --arg date "$(date '+%F %H:%M')" --arg sid "$sid" --arg dir "$cwd" \
+        --arg home "$home" --arg reason "$reason" --arg summary "$1" \
+        '{date: $date, session_id: $sid, dir: $dir, home: $home,
+          reason: $reason, summary: $summary}'
     } > "$journal.tmp" && mv "$journal.tmp" "$journal"
   ) 200>"$journal.lock"
 }

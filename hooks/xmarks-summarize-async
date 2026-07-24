@@ -19,8 +19,10 @@ summary="$(cd "${TMPDIR:-/tmp}" && printf '%s\n' "$excerpt" \
 (
   flock -w 5 200 || exit 0
   {
-    [ -f "$journal" ] && awk -F'\t' -v s="$sid" '$2 != s' "$journal"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$(date '+%F %H:%M')" "$sid" "$cwd" "$home" "$reason" "$summary"
+    [ -f "$journal" ] && jq -c --arg s "$sid" 'select(.session_id != $s)' "$journal"
+    jq -nc --arg date "$(date '+%F %H:%M')" --arg sid "$sid" --arg dir "$cwd" \
+      --arg home "$home" --arg reason "$reason" --arg summary "$summary" \
+      '{date: $date, session_id: $sid, dir: $dir, home: $home,
+        reason: $reason, summary: $summary}'
   } > "$journal.tmp" && mv "$journal.tmp" "$journal"
 ) 200>"$journal.lock"

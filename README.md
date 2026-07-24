@@ -68,15 +68,15 @@ All xmarks state lives under `~/.xmarks/` (marks, journal, and
 their lock/tmp files during writes) rather than loose dotfiles in `$HOME`.
 Upgrading from an older version migrates automatically the first time any
 command runs — the old `~/.xmarks` file and `~/.xmarks-journal`
-are moved in place, and a TSV `marks.tsv` from a pre-JSONL version is
-converted to `marks.jsonl` (the original is kept as `marks.tsv.bak`).
-Nothing is lost.
+are moved in place, and TSV `marks.tsv`/`journal.tsv` from a pre-JSONL
+version are converted to `marks.jsonl`/`journal.jsonl` (the originals are
+kept as `marks.tsv.bak`/`journal.tsv.bak`). Nothing is lost.
 
 ## Session journal: auto-summaries on exit
 
 `make install-hook` registers a `SessionEnd` hook in every `~/.claude*`
 settings.json (each backed up to `.bak` first). When a Claude Code session
-ends, the hook appends one row to `~/.xmarks/journal.tsv`: date, session
+ends, the hook appends one row to `~/.xmarks/journal.jsonl`: date, session
 id, dir, account, and an auto-generated summary — by default it asks haiku
 via `claude -p` for ≤12 words about the transcript (a few seconds, a
 fraction of a cent per session); set `XMARKS_AUTOSUMMARY=first` to

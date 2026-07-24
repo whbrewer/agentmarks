@@ -12,7 +12,9 @@
 # State lives under ~/.xmarks/:
 #   marks.jsonl  one JSON object per line, one per mark:
 #                {name, dir, session_id, note, date, first_message, home, tool}
-#   journal.tsv  one line per ended session, written by the SessionEnd hook
+#   journal.jsonl  one JSON object per line, one per ended session, written
+#                  by the SessionEnd hook: {date, session_id, dir, home,
+#                  reason, summary}
 # where tool is "claude" or "codex" (empty = claude, for old marks) and
 # home is the CLAUDE_CONFIG_DIR / CODEX_HOME the session lives in, so
 # marks from different accounts and tools coexist and resume correctly.
@@ -71,6 +73,17 @@ am_migrate () {
          tool: (if (.[7] // "") == "" then "claude" else .[7] end)}
     ' "$dir/marks.tsv" > "$dir/marks.jsonl" \
       && mv "$dir/marks.tsv" "$dir/marks.tsv.bak"
+  fi
+  # Same TSV -> JSONL move for the journal (date, session_id, dir, home,
+  # reason, summary), kept as journal.tsv.bak.
+  if [ -f "$dir/journal.tsv" ] && [ ! -f "$dir/journal.jsonl" ]; then
+    jq -R -s -c '
+      split("\n") | map(select(length > 0) | split("\t"))
+      | .[]
+      | {date: .[0], session_id: .[1], dir: .[2], home: .[3], reason: .[4],
+         summary: .[5]}
+    ' "$dir/journal.tsv" > "$dir/journal.jsonl" \
+      && mv "$dir/journal.tsv" "$dir/journal.tsv.bak"
   fi
 }
 
@@ -315,7 +328,7 @@ xl () {
 # (make install-hook). Newest first; optional pattern filters, else last 20.
 xj () {
   am_migrate
-  local j="${XMARKS_JOURNAL:-$HOME/.xmarks/journal.tsv}"
+  local j="${XMARKS_JOURNAL:-$HOME/.xmarks/journal.jsonl}"
   local marksfile="${XMARKS_FILE:-$HOME/.xmarks/marks.jsonl}"
   [ -s "$j" ] || {
     echo "xj: no journal yet — install the SessionEnd hook: make install-hook" >&2
@@ -324,6 +337,7 @@ xj () {
   { printf 'DATE\tMARK\tACCOUNT\tDIR\tSUMMARY\n'
     local IFS=$'\t' date sid dir home reason summary mark
     tac "$j" | { [ -n "$1" ] && grep -i -- "$1" || head -20; } \
+    | jq -r '[.date, .session_id, .dir, .home, .reason, .summary] | join("\t")' \
     | while read -r date sid dir home reason summary; do
         mark="$(jq -r --arg s "$sid" 'select(.session_id == $s) | .name' "$marksfile" 2>/dev/null | head -1)"
         printf '%s\t%s\t%s\t%s\t%s\n' "$date" "${mark:--}" "$(am_account "$home")" "$dir" "$summary"
