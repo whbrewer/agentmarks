@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# xmarks UserPromptSubmit hook — see README's "Session journal" section.
+#
+# Writes an early journal row after the session's *first* prompt, using
+# that prompt's own text (truncated, no LLM call) as the summary and
+# "in_progress" as the reason. Exists because SessionEnd never fires if
+# the session dies without a clean exit (e.g. a dropped SSH connection),
+# which otherwise loses the session from the journal entirely — the first
+# prompt usually carries the session's main intent anyway, so it's a
+# reasonable summary to have on record even if nothing else ever runs.
+#
+# Fires on every prompt, so on the 2nd+ prompt of a session this exits
+# immediately once it sees a row already exists for this session id.
+# If xmarks-sessionend does fire later, its dedup-by-session-id logic
+# overwrites this row with the real summary — never two rows for one
+# session.
+
+[ -n "$XMARKS_IN_HOOK" ] && exit 0  # must not recurse into our own claude -p
+
+. "$(dirname "$(readlink -f "$0")")/xmarks.sh" 2>/dev/null
+am_migrate 2>/dev/null
+
+IN="$(cat)"
+sid="$(jq -r '.session_id // empty' <<<"$IN")"
+tp="$(jq -r '.transcript_path // empty' <<<"$IN")"
+cwd="$(jq -r '.cwd // empty' <<<"$IN")"
+prompt="$(jq -r '.user_input // empty' <<<"$IN")"
+[ -n "$sid" ] && [ -n "$tp" ] || exit 0
+home="${tp%/projects/*}"
+journal="${XMARKS_JOURNAL:-$HOME/.xmarks/journal.jsonl}"
+
+[ -f "$journal" ] && jq -e --arg s "$sid" 'select(.session_id == $s)' "$journal" \
+  >/dev/null 2>&1 && exit 0
+
+summary="$(printf '%s' "$prompt" | tr '\t\n' '  ' | sed 's/^[[:space:]]*//' | cut -c1-100)"
+[ -n "$summary" ] || exit 0
+
+(
+  flock -w 5 200 || true
+  {
+    [ -f "$journal" ] && jq -c --arg s "$sid" 'select(.session_id != $s)' "$journal"
+    jq -nc --arg date "$(date '+%F %H:%M')" --arg sid "$sid" --arg dir "$cwd" \
+      --arg home "$home" --arg summary "$summary" \
+      '{date: $date, session_id: $sid, dir: $dir, home: $home,
+        reason: "in_progress", summary: $summary}'
+  } > "$journal.tmp" && mv "$journal.tmp" "$journal"
+) 200>"$journal.lock"

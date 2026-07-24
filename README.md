@@ -26,13 +26,15 @@ Requires `jq` (for first-message previews). `fzf` is optional — if present,
 
 Sourcing `xmarks.sh` also registers bash tab completion for `xg`, `xd`,
 and `xs` — press `<TAB>` after any of them to complete an existing mark
-name. No separate step; it's set up wherever the `source` line runs.
+name (`xg` also completes journal HASHes, see below). No separate step;
+it's set up wherever the `source` line runs.
 
 ## Usage
 
 ```bash
 xs <name> [note...]   # save a mark for the session in the current dir
-xg <name>             # cd there and resume the session
+xg <name|hash>        # cd there and resume the session (name from xl, or
+                      # a journal HASH from xj — no xs needed)
 xl [-l|--long]        # list marks; -l adds the first-message preview column
 xd <name>             # remove a mark
 xq                    # is this session saved? (inside a session: `! xq`)
@@ -72,33 +74,49 @@ are moved in place, and TSV `marks.tsv`/`journal.tsv` from a pre-JSONL
 version are converted to `marks.jsonl`/`journal.jsonl` (the originals are
 kept as `marks.tsv.bak`/`journal.tsv.bak`). Nothing is lost.
 
-## Session journal: auto-summaries on exit
+## Session journal: auto-summaries on exit (and before)
 
-`make install-hook` registers a `SessionEnd` hook in every `~/.claude*`
-settings.json (each backed up to `.bak` first). When a Claude Code session
-ends, the hook appends one row to `~/.xmarks/journal.jsonl`: date, session
-id, dir, account, and an auto-generated summary — by default it asks haiku
-via `claude -p` for ≤12 words about the transcript (a few seconds, a
-fraction of a cent per session); set `XMARKS_AUTOSUMMARY=first` to
-skip the LLM and use the session's first user message instead.
+`make install-hook` registers a `SessionEnd` hook and a `UserPromptSubmit`
+hook in every `~/.claude*` settings.json (each backed up to `.bak` first).
+When a Claude Code session ends, the SessionEnd hook appends one row to
+`~/.xmarks/journal.jsonl`: date, session id, dir, account, and an
+auto-generated summary — by default it asks haiku via `claude -p` for
+≤12 words about the transcript (a few seconds, a fraction of a cent per
+session); set `XMARKS_AUTOSUMMARY=first` to skip the LLM and use the
+session's first user message instead.
 
-Browse with `xj` (newest first, last 20) or `xj <pattern>` to filter. Each
-row's MARK column shows the mark name if that session was also `xs`'d
-(looked up by session id against `~/.xmarks/marks.jsonl`), or `-` if not — so you
-can tell at a glance which journaled sessions are already bookmarked.
-Unlike marks, the journal itself is automatic and unnamed — it's the
-safety net for sessions you forgot to mark. `make uninstall-hook` removes
-the hook.
+The UserPromptSubmit hook writes an earlier, cheaper version of that same
+row the moment the *first* prompt is sent — no LLM call, just that
+prompt's own text (truncated) as the summary, with `reason` set to
+`in_progress`. This exists for sessions that never reach a clean exit —
+an SSH connection dropping partway through, say — which would otherwise
+vanish from the journal entirely; the first prompt is usually the best
+one-line summary of the session's intent anyway. If SessionEnd does fire
+afterward, it overwrites this row with the real summary as usual — never
+two rows for one session. Later prompts in the same session are a no-op
+for this hook (it exits as soon as it sees a row already exists).
 
-The hook itself always returns in well under a second: it writes the
-heuristic summary synchronously, then — if an LLM summary is wanted —
-launches a fully detached background job (`xmarks-summarize-async`,
-via `setsid`) that asks haiku and patches the row in place once it's
-ready. This matters because SessionEnd hooks get killed if they run too
-long; earlier versions called `claude -p` inline and could be cancelled
-outright (losing the journal entry) if that call stalled — e.g. from a
-spend-limit block. Now a stalled or failed LLM call just leaves the
-heuristic summary in place; the hook itself never waits on it.
+Browse with `xj` (oldest to newest, latest at the bottom; last 20 by
+default) or `xj <pattern>` to filter. Each row's MARK column shows the
+mark name if that session was also `xs`'d (looked up by session id
+against `~/.xmarks/marks.jsonl`), or `-` if not — so you can tell at a
+glance which journaled sessions are already bookmarked. Every row also
+gets a HASH column (the first 6 characters of its session id) that
+`xg <hash>` resumes directly — so a session never needs an `xs` at all to
+be one command away. The default view hides the ACCOUNT column and
+shortens SUMMARY to keep things narrow; `xj -l`/`--long` shows both in
+full. `make uninstall-hook` removes both hooks.
+
+The SessionEnd hook itself always returns in well under a second: it
+writes the heuristic summary synchronously, then — if an LLM summary is
+wanted — launches a fully detached background job
+(`xmarks-summarize-async`, via `setsid`) that asks haiku and patches the
+row in place once it's ready. This matters because SessionEnd hooks get
+killed if they run too long; earlier versions called `claude -p` inline
+and could be cancelled outright (losing the journal entry) if that call
+stalled — e.g. from a spend-limit block. Now a stalled or failed LLM call
+just leaves the heuristic summary in place; the hook itself never waits
+on it.
 
 ## Multiple accounts and tools
 

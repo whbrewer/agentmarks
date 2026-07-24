@@ -36,28 +36,28 @@ install-skill:
 uninstall-skill:
 	rm -rf $(HOME)/.claude/skills/mark $(HOME)/.claude-*/skills/mark
 
-# Register the SessionEnd journal hook in every ~/.claude* settings.json
-# (backs each up to settings.json.bak first). Browse the journal with xj.
+# Register the SessionEnd and UserPromptSubmit journal hooks in every
+# ~/.claude* settings.json (backs each up to settings.json.bak first).
+# Browse the journal with xj.
 install-hook:
 	install -m 755 hooks/xmarks-sessionend $(BINDIR)/xmarks-sessionend
 	install -m 755 hooks/xmarks-summarize-async $(BINDIR)/xmarks-summarize-async
+	install -m 755 hooks/xmarks-userpromptsubmit $(BINDIR)/xmarks-userpromptsubmit
 	@for d in $(HOME)/.claude $(HOME)/.claude-*; do \
 	  [ -d $$d ] || continue; \
 	  s=$$d/settings.json; [ -f $$s ] || echo '{}' > $$s; \
 	  cp $$s $$s.bak; \
-	  jq --arg cmd "$(BINDIR)/xmarks-sessionend" \
-	    '.hooks.SessionEnd = ((.hooks.SessionEnd // []) | map(select((.hooks[0].command // "") != $$cmd))) + [{"hooks": [{"type": "command", "command": $$cmd}]}]' \
-	    $$s.bak > $$s.new && mv $$s.new $$s && echo "hook registered in $$s"; \
+	  jq --arg cmd "$(BINDIR)/xmarks-sessionend" --arg cmd2 "$(BINDIR)/xmarks-userpromptsubmit" '.hooks.SessionEnd = ((.hooks.SessionEnd // []) | map(select((.hooks[0].command // "") != $$cmd))) + [{"hooks": [{"type": "command", "command": $$cmd}]}] | .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // []) | map(select((.hooks[0].command // "") != $$cmd2))) + [{"hooks": [{"type": "command", "command": $$cmd2}]}]' \
+	    $$s.bak > $$s.new && mv $$s.new $$s && echo "hooks registered in $$s"; \
 	done
 
 uninstall-hook:
 	@for d in $(HOME)/.claude $(HOME)/.claude-*; do \
 	  s=$$d/settings.json; [ -f $$s ] || continue; \
 	  cp $$s $$s.bak; \
-	  jq --arg cmd "$(BINDIR)/xmarks-sessionend" \
-	    '.hooks.SessionEnd = ((.hooks.SessionEnd // []) | map(select((.hooks[0].command // "") != $$cmd)))' \
-	    $$s.bak > $$s.new && mv $$s.new $$s && echo "hook removed from $$s"; \
+	  jq --arg cmd "$(BINDIR)/xmarks-sessionend" --arg cmd2 "$(BINDIR)/xmarks-userpromptsubmit" '.hooks.SessionEnd = ((.hooks.SessionEnd // []) | map(select((.hooks[0].command // "") != $$cmd))) | .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // []) | map(select((.hooks[0].command // "") != $$cmd2)))' \
+	    $$s.bak > $$s.new && mv $$s.new $$s && echo "hooks removed from $$s"; \
 	done
-	rm -f $(BINDIR)/xmarks-sessionend $(BINDIR)/xmarks-summarize-async
+	rm -f $(BINDIR)/xmarks-sessionend $(BINDIR)/xmarks-summarize-async $(BINDIR)/xmarks-userpromptsubmit
 
 .PHONY: install uninstall install-skill uninstall-skill install-hook uninstall-hook

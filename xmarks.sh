@@ -3,18 +3,26 @@
 # Source from .bashrc:  source ~/.local/bin/xmarks.sh
 #
 #   xs <name> [note...]    save a mark for the current/most-recent session here
-#   xg [name]              cd to the mark's dir and resume its session
+#   xg [name|hash]         cd to its dir and resume the session (name from
+#                          xl, or the journal HASH from xj — no xs needed)
 #   xl [-l|--long]         list marks (-l adds the first-message preview)
 #   xd <name>              remove a mark
 #   xq                     is this session / directory marked?
-#   xj [pattern]           journal of past sessions, cross-referenced with marks
+#   xj [-l|--long] [pattern]  journal of past sessions, oldest to newest;
+#                          each row's HASH is an xg shortcut (-l adds
+#                          ACCOUNT and the untruncated SUMMARY)
 #
 # State lives under ~/.xmarks/:
 #   marks.jsonl  one JSON object per line, one per mark:
 #                {name, dir, session_id, note, date, first_message, home, tool}
-#   journal.jsonl  one JSON object per line, one per ended session, written
-#                  by the SessionEnd hook: {date, session_id, dir, home,
-#                  reason, summary}
+#   journal.jsonl  one JSON object per line, one per session, written by the
+#                  SessionEnd hook: {date, session_id, dir, home, reason,
+#                  summary}. The UserPromptSubmit hook seeds an early row
+#                  (reason "in_progress", summary = the first prompt, no
+#                  LLM call) as soon as the first prompt is sent, so a
+#                  session that dies without a clean exit -- a dropped SSH
+#                  connection, say -- still shows up; SessionEnd overwrites
+#                  it with the real summary if it does fire.
 # where tool is "claude" or "codex" (empty = claude, for old marks) and
 # home is the CLAUDE_CONFIG_DIR / CODEX_HOME the session lives in, so
 # marks from different accounts and tools coexist and resume correctly.
@@ -232,7 +240,9 @@ xs () {
 xg () {
   am_migrate
   local XMARKS_FILE="${XMARKS_FILE:-$HOME/.xmarks/marks.jsonl}"
-  [ -s "$XMARKS_FILE" ] || { echo "xg: no marks yet" >&2; return 1; }
+  local XMARKS_JOURNAL="${XMARKS_JOURNAL:-$HOME/.xmarks/journal.jsonl}"
+  [ -s "$XMARKS_FILE" ] || [ -s "$XMARKS_JOURNAL" ] \
+    || { echo "xg: no marks or journal yet" >&2; return 1; }
   local name="$1" line
   if [ -z "$name" ]; then
     if command -v fzf >/dev/null 2>&1; then
@@ -240,17 +250,27 @@ xg () {
         | fzf --delimiter='\t' --with-nth=1,2,3)" || return 1
       name="$(printf '%s' "$line" | cut -f1)"
     else
-      xl; printf 'usage: xg <name>\n' >&2; return 1
+      xl; printf 'usage: xg <name|hash>\n' >&2; return 1
     fi
   fi
-  line="$(jq -c --arg n "$name" 'select(.name == $n)' "$XMARKS_FILE" | tail -1)"
-  [ -n "$line" ] || { echo "xg: no such mark: $name" >&2; return 1; }
   local dir sid home tool
-  dir="$(jq -r '.dir' <<<"$line")"
-  sid="$(jq -r '.session_id' <<<"$line")"
-  home="$(jq -r '.home' <<<"$line")"
-  tool="$(jq -r '.tool' <<<"$line")"
-  tool="${tool:-claude}"
+  line="$([ -s "$XMARKS_FILE" ] && jq -c --arg n "$name" 'select(.name == $n)' "$XMARKS_FILE" | tail -1)"
+  if [ -n "$line" ]; then
+    dir="$(jq -r '.dir' <<<"$line")"
+    sid="$(jq -r '.session_id' <<<"$line")"
+    home="$(jq -r '.home' <<<"$line")"
+    tool="$(jq -r '.tool' <<<"$line")"
+    tool="${tool:-claude}"
+  else
+    # Not a mark name -- try it as an xj HASH (a session_id prefix), so
+    # sessions never explicitly `xs`'d are still one command to resume.
+    line="$([ -s "$XMARKS_JOURNAL" ] && jq -c --arg h "$name" 'select(.session_id | startswith($h))' "$XMARKS_JOURNAL" | tail -1)"
+    [ -n "$line" ] || { echo "xg: no such mark or session: $name" >&2; return 1; }
+    dir="$(jq -r '.dir' <<<"$line")"
+    sid="$(jq -r '.session_id' <<<"$line")"
+    home="$(jq -r '.home' <<<"$line")"
+    tool=claude
+  fi
   [ -d "$dir" ] || { echo "xg: directory gone: $dir" >&2; return 1; }
   cd "$dir" || return 1
   if [ "$tool" = codex ]; then
@@ -321,28 +341,49 @@ xl () {
       fi
     done < <(jq -r '[.name, .dir, .session_id, .note, .date, .first_message, .home, .tool]
                     | join("")' "$XMARKS_FILE")
-  } | column -t -s"$(printf '\t')"
+  # -c 1000: util-linux column -t silently drops trailing columns that don't
+  # fit the terminal width instead of wrapping -- a wide -l row would
+  # otherwise lose FIRST MESSAGE with no indication anything was cut.
+  } | column -t -s"$(printf '\t')" -c 1000
 }
 
 # xj: journal of ended sessions, written by the xmarks-sessionend hook
-# (make install-hook). Newest first; optional pattern filters, else last 20.
+# (make install-hook). Oldest-to-newest (latest at the bottom); optional
+# pattern filters, else last 20. -l/--long adds ACCOUNT and the untruncated
+# SUMMARY (default view drops ACCOUNT and shortens SUMMARY to keep columns
+# narrow).
 xj () {
   am_migrate
   local j="${XMARKS_JOURNAL:-$HOME/.xmarks/journal.jsonl}"
   local marksfile="${XMARKS_FILE:-$HOME/.xmarks/marks.jsonl}"
+  local long=0
+  case "$1" in -l|--long|--full) long=1; shift ;; esac
   [ -s "$j" ] || {
     echo "xj: no journal yet — install the SessionEnd hook: make install-hook" >&2
     return 1
   }
-  { printf 'DATE\tMARK\tACCOUNT\tDIR\tSUMMARY\n'
+  { if [ "$long" = 1 ]; then
+      printf 'DATE\tHASH\tMARK\tACCOUNT\tDIR\tSUMMARY\n'
+    else
+      printf 'DATE\tHASH\tMARK\tDIR\tSUMMARY\n'
+    fi
     local IFS=$'\t' date sid dir home reason summary mark
-    tac "$j" | { [ -n "$1" ] && grep -i -- "$1" || head -20; } \
+    local maxlen="${XMARKS_NOTE_MAXLEN:-52}"
+    tac "$j" | { [ -n "$1" ] && grep -i -- "$1" || head -20; } | tac \
     | jq -r '[.date, .session_id, .dir, .home, .reason, .summary] | join("\t")' \
     | while read -r date sid dir home reason summary; do
         mark="$(jq -r --arg s "$sid" 'select(.session_id == $s) | .name' "$marksfile" 2>/dev/null | head -1)"
-        printf '%s\t%s\t%s\t%s\t%s\n' "$date" "${mark:--}" "$(am_account "$home")" "$dir" "$summary"
+        if [ "$long" = 1 ]; then
+          printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$date" "${sid:0:6}" "${mark:--}" "$(am_account "$home")" "$dir" "$summary"
+        else
+          printf '%s\t%s\t%s\t%s\t%s\n' \
+            "$date" "${sid:0:6}" "${mark:--}" "$dir" "$(am_truncate "$summary" "$maxlen")"
+        fi
       done
-  } | column -t -s"$(printf '\t')"
+  # -c 1000: same column -t width-truncation quirk as xl -- without it a
+  # long -l SUMMARY silently vanishes instead of wrapping.
+  } | column -t -s"$(printf '\t')" -c 1000
 }
 
 # xq: is this session saved? Inside a Claude Code session (`! xq`) checks
@@ -384,16 +425,27 @@ xd () {
   echo "removed '$1'"
 }
 
-# Tab completion for mark names on xg/xd (and xs, so overwriting an
-# existing mark can be completed too). Bash only -- zsh users with
-# bashcompinit loaded will pick this up as well since it uses the same
-# `complete` builtin, but this isn't tested under plain zsh.
+# Tab completion for mark names on xd/xs (so overwriting an existing mark
+# can be completed too) and for xg, which also completes journal HASHes
+# so an unmarked session is still tab-completable. Bash only -- zsh users
+# with bashcompinit loaded will pick this up as well since it uses the
+# same `complete` builtin, but this isn't tested under plain zsh.
 am_complete () {
   local f="${XMARKS_FILE:-$HOME/.xmarks/marks.jsonl}"
   [ -r "$f" ] || return 0
   local cur=${COMP_WORDS[COMP_CWORD]}
   COMPREPLY=( $(compgen -W "$(jq -r '.name' "$f" 2>/dev/null)" -- "$cur") )
 }
+am_complete_xg () {
+  local f="${XMARKS_FILE:-$HOME/.xmarks/marks.jsonl}"
+  local j="${XMARKS_JOURNAL:-$HOME/.xmarks/journal.jsonl}"
+  local names hashes
+  [ -r "$f" ] && names="$(jq -r '.name' "$f" 2>/dev/null)"
+  [ -r "$j" ] && hashes="$(jq -r '.session_id[0:6]' "$j" 2>/dev/null)"
+  local cur=${COMP_WORDS[COMP_CWORD]}
+  COMPREPLY=( $(compgen -W "$names $hashes" -- "$cur") )
+}
 if [ -n "$BASH_VERSION" ]; then
-  complete -F am_complete xg xd xs
+  complete -F am_complete_xg xg
+  complete -F am_complete xd xs
 fi
