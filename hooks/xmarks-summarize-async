@@ -23,9 +23,16 @@ summary="$(cd "${TMPDIR:-/tmp}" && printf '%s\n' "$excerpt" \
   name="$(jq -r '.name // empty' <<<"${old:-null}" 2>/dev/null)"
   note="$(jq -r '.note // empty' <<<"${old:-null}" 2>/dev/null)"
   tool="$(jq -r '.tool // "claude"' <<<"${old:-null}" 2>/dev/null)"
+  # Preserve the row's original date -- this patch can land long after the
+  # session actually ended (e.g. a laptop suspended right after xmarks-
+  # sessionend launched this job, so the 45s timeout never ticked and the
+  # claude -p call only ran once the machine woke back up) and must not
+  # make a stale session look like it happened just now.
+  date="$(jq -r '.date // empty' <<<"${old:-null}" 2>/dev/null)"
+  date="${date:-$(date '+%F %H:%M')}"
   {
     [ -f "$sessions" ] && jq -c --arg s "$sid" 'select(.session_id != $s)' "$sessions"
-    jq -nc --arg date "$(date '+%F %H:%M')" --arg sid "$sid" --arg dir "$cwd" \
+    jq -nc --arg date "$date" --arg sid "$sid" --arg dir "$cwd" \
       --arg home "$home" --arg tool "$tool" --arg reason "$reason" --arg summary "$summary" \
       --argjson starred "${starred:-false}" --arg name "$name" --arg note "$note" \
       '{date: $date, session_id: $sid, dir: $dir, home: $home, tool: $tool,
